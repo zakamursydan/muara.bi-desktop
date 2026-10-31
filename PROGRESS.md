@@ -92,13 +92,16 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
     pihak ketiga ikut didistribusikan. Verifikasi ulang di tag Wails v3 yang dikunci saat M0.
   - **Transport (BRD §5.7), diverifikasi dari kode 2026-10-31:** bastion hanya di-dial pada Test Connection
     (`connection_service.go:252-262`); `SyncSchema` (`:321`) dan `attachConnection`
-    (`session_preparer.go:193-202`) memakai `cfg.Host` mentah → di belakang bastion, UI hijau tapi query gagal.
+    (`session_preparer.go:203` → `postgresDSN` `:262`) memakai `cfg.Host` mentah → di belakang bastion, UI hijau tapi query gagal.
     DuckDB tidak menerima `net.Conn`, jadi solusinya forwarder TCP lokal + DSN `127.0.0.1:<port>`.
-  - Bug produk web, **direproduksi** (bukan dugaan): `connection_service.go:322-326` menghasilkan
+  - Bug produk web, **direproduksi lalu DIPERBAIKI 2026-10-31**: `connection_service.go:322-326` menghasilkan
     `... sslmode= sslmode=disable` saat `ssl_mode` kosong; `pgx.ParseConfig` menolaknya dengan
     `cannot parse ...: failed to configure TLS (sslmode is invalid)` → SyncSchema Postgres gagal total untuk
-    koneksi tanpa `ssl_mode`. `session_preparer.go:196-199` memberi default `disable`, jadi dua jalur
-    berbeda perilaku. Perbaikan masuk M2 (satu tempat, plus tes).
+    koneksi tanpa `ssl_mode`, sementara `session_preparer.go` memberi default `disable` (dua jalur, dua perilaku).
+    Sekarang satu perakit DSN dipakai keduanya (`service.postgresDSN`), dan nilai dari user di-quote per aturan
+    libpq sehingga spasi tidak memecah nilai dan kredensial tak bisa menyuntik parameter lain. Empat tes
+    (`session_preparer_test.go`, salah satunya membuktikan bentuk DSN lama benar-benar ditolak pgx).
+    Manfaat untuk M2: pekerjaan forwarder bastion sekarang cuma menyentuh satu fungsi.
   - Belum ada tempat untuk CA privat (`rootcert`); default `sslmode=disable` salah untuk DB internal
     self-signed. Masuk FR-1 + blocker §10 butir 8.
   - **Kontrak pemotongan (M1.4, diverifikasi 2026-10-31):** engine tidak menebak "halaman penuh = terpotong".
@@ -129,6 +132,9 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 3. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
    `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. `threads` per sesi
    masih hardcoded 2 (`engine/duckdb/session_cgo.go`) dan sengaja dibawa ke M0 bersama profil CPU mesin.
+4. Sisa pekerjaan SSL setelah bug DSN ditutup (masuk M2, jangan tertukar dengan yang sudah selesai):
+   `rootcert`/CA privat (BRD §10 butir 8) dan validasi `ssl_mode` di request supaya nilai typo menjawab 400
+   alih-alih gagal saat koneksi (`dto/request/connection.go:23` sampai kini tidak divalidasi).
 
 ## 5. Kendala & catatan lingkungan
 

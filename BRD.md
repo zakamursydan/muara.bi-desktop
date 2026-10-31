@@ -163,7 +163,7 @@ Empat aturan mengikat:
    menunjuk ke `127.0.0.1:<port>`, dan umur forwarder = umur sesi.
 3. **CA privat.** Database di jaringan internal umumnya bersertifikat self-signed, sehingga `sslmode` saja tidak
    cukup: dibutuhkan `rootcert` (path, ikut aturan relatif §5.5) dan alur "percayai sertifikat ini". Hari ini DSN
-   hanya merakit `sslmode` dan default-nya `disable` (`session_preparer.go:196-199`); tidak ada tempat menaruh CA.
+   hanya merakit `sslmode` dan default-nya `disable` (`service.postgresDSN`, `session_preparer.go:262`); tidak ada tempat menaruh CA.
 4. **Pesan kegagalan harus membedakan tiga sebab** yang tindakannya beda: *host tidak terjangkau* (belum VPN /
    firewall), *nama tidak teresolusi* (DNS tidak dikirim VPN — jangan tulis "connection refused"), dan
    *kredensial ditolak / TLS gagal*. Pre-flight import (§FR-11) memakai pesan yang sama: "10.20.3.4:5432 tidak
@@ -313,8 +313,8 @@ jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 | 5 | Build non-CGO mengembalikan hasil palsu | **SELESAI 2026-10-31** — `NewEngine` mengembalikan `duckdb.ErrCGODisabled`, stub tidak bisa menghasilkan `QueryResult` lagi; dibuktikan `cgo_disabled_test.go` + `cgo_enabled_test.go` (kontrak §7.4 kini ditegakkan di engine) |
 | 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **SELESAI di engine 2026-10-31 (M1.5)** — `GuardrailConfig.MaxMemory` + `NormalizeMaxMemory` (gagal di startup kalau bukan angka+unit; default tetap 2 GB). Web sudah membacanya dari `DUCKDB_MAX_MEMORY`. **Yang tersisa: pengaturannya di UI settings desktop** → FR-15 |
 | 7 | Bastion hanya dipakai Test Connection — jalur query & schema-sync tidak lewat tunnel | **BUKA, temuan 2026-10-31** — `connection_service.go:252-262` vs `:321` dan `session_preparer.go:193-202` → §5.7 aturan 1 & 2. Untuk DuckDB tidak ada jalan lain selain forwarder TCP lokal |
-| 8 | Tidak ada tempat untuk CA privat (`rootcert`); `sslmode` default `disable` | **BUKA, temuan 2026-10-31** — `session_preparer.go:196-201` → §5.7 aturan 3 |
-| 9 | `SyncSchema` Postgres selalu gagal kalau `ssl_mode` kosong | **BUKA, temuan 2026-10-31, direproduksi** — `connection_service.go:322-326` menghasilkan `... sslmode= sslmode=disable`; diverifikasi dengan `pgx.ParseConfig`: `cannot parse ...: failed to configure TLS (sslmode is invalid)`. Jadi bukan sekadar rapuh — DSN-nya ditolak. `ssl_mode` tidak divalidasi/di-default-kan di `dto/request/connection.go:23`. Berlaku juga di produk web |
+| 8 | Tidak ada tempat untuk CA privat (`rootcert`); `sslmode` default `disable` | **BUKA, temuan 2026-10-31** — perakit DSN kini satu tempat (`session_preparer.go:262`, lihat butir 9) tapi hanya merakit `sslmode` dengan default `disable`; tidak ada field CA. → §5.7 aturan 3 |
+| 9 | `SyncSchema` Postgres selalu gagal kalau `ssl_mode` kosong | **SELESAI 2026-10-31 (di produk web, desktop ikut sehat)** — `connection_service.go:322-326` dulu menghasilkan `... sslmode= sslmode=disable` dan `pgx.ParseConfig` menolaknya (`cannot parse ...: failed to configure TLS (sslmode is invalid)`). Keduanya kini memakai `service.postgresDSN(cfg)` (`session_preparer.go:262`): satu default `disable`, nilai user di-quote per aturan libpq (`dsnValue:275`) sehingga kredensial berspasi maupun yang menyamar jadi parameter lain tidak bisa menembus DSN. Empat tes di `session_preparer_test.go`, salah satunya membuktikan bentuk DSN lama memang ditolak. **`ssl_mode` masih belum divalidasi di `dto/request/connection.go:23`** — nilai typo baru ketahuan saat koneksi gagal, bukan sebagai 400; masuk M2 bersama butir 8 |
 
 ## 11. Roadmap
 

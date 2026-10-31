@@ -134,15 +134,23 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       "simpan sebagai CSV/Parquet" — tanpa jalur diam-diam.
 - [ ] **Transport ke sumber privat (BRD §5.7)** — bastion jadi **forwarder TCP lokal** dan dipakai oleh
       *semua* jalur, bukan hanya Test Connection. Ini wajib dikerjakan di engine karena `attachConnection`
-      (`session_preparer.go:193-202`) mengirim `cfg.Host` mentah ke DuckDB dan DuckDB **tidak bisa** menerima
+      (`session_preparer.go:203` → `postgresDSN` di `:262`) mengirim `cfg.Host` mentah ke DuckDB dan DuckDB **tidak bisa** menerima
       `net.Conn` (koneksi dibuat di sisi C dari string DSN) — jadi satu-satunya bentuk yang mungkin adalah
       DSN yang menunjuk `127.0.0.1:<port>` milik forwarder, dengan umur = umur sesi.
-- [ ] **`rootcert` / CA privat** masuk spesifikasi attach + path relatif (§5.5); default `sslmode` ditetapkan
-      di SATU tempat. Hari ini duplikat dan kontradiktif: `session_preparer.go:196-199` memberi `disable`,
-      sedangkan `connection_service.go:322-326` menempel `sslmode=disable` kedua di belakang `sslmode=` kosong —
-      direproduksi 2026-10-31, `pgx.ParseConfig` menolaknya
-      (`cannot parse ...: failed to configure TLS (sslmode is invalid)`), artinya SyncSchema Postgres gagal
-      total untuk koneksi tanpa `ssl_mode`. Sekaligus jadi tes regresi, karena ini bug produk web juga.
+- [x] **Default `sslmode` di SATU tempat + tes regresi (2026-10-31, bug produk web juga).** Dulu duplikat dan
+      kontradiktif: `session_preparer.go` memberi `disable`, sedangkan `connection_service.go:322-326` menempel
+      `sslmode=disable` **kedua** di belakang `sslmode=` kosong — direproduksi, `pgx.ParseConfig` menolaknya
+      (`cannot parse ...: failed to configure TLS (sslmode is invalid)`), artinya SyncSchema Postgres gagal total
+      untuk koneksi tanpa `ssl_mode`. Sekarang keduanya memanggil `service.postgresDSN(cfg)`
+      (`muara.bi-service/backend/internal/service/session_preparer.go:262`) yang men-default-kan `disable` sekali,
+      dan nilai yang berasal dari user di-quote sesuai aturan libpq (`dsnValue`, `:275`) sehingga spasi tidak lagi
+      memecah nilai dan kredensial tidak bisa menyuntik parameter lain (tes: password
+      `"x sslmode=disable application_name=evil"` tidak menurunkan TLS, diverifikasi lewat `pgx.ParseConfig`).
+      Empat tes di `session_preparer_test.go`, termasuk satu yang membuktikan bentuk DSN lama memang ditolak pgx.
+      **Ini juga memudahkan FR-1/M2:** forwarder bastion kini hanya perlu mengganti satu perakit DSN.
+- [ ] **`rootcert` / CA privat** masuk spesifikasi attach + path relatif (§5.5). Bug `sslmode` ganda di atas sudah
+      ditutup 2026-10-31, tetapi belum ada tempat untuk CA internal, dan default `disable` tetap salah untuk DB
+      self-signed di jaringan kantor → sisa pekerjaan ada di butir 8 §10 BRD.
 
 **Exit:** tree menampilkan kolom Mongo dan Postgres berdampingan; satu query lintas dua alias jalan;
 pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang bastion/VPN terbukti jalan pada
