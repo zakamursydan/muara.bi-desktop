@@ -65,14 +65,23 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       menyentuh logika DuckDB. Belum diverifikasi lewat build image: daemon Docker mati (milik user);
       jalankan `make image-core` untuk menutup sisa exit criterion ini.
 - [ ] `max_memory` DuckDB jadi konfigurasi (sekarang hardcoded 2 GB/sesi di `session_cgo.go`).
-- [ ] Kontrak hasil: `QueryResult` membawa penanda `truncated` + alasannya (LIMIT disuntik / cap
-      sumber), supaya kontrak BRD §7 ditegakkan di engine, bukan di UI.
+- [x] **Kontrak hasil `truncated` (2026-10-31, M1.4)** — `duckdb.QueryResult` menambah `row_limit`,
+      `truncated`, `truncated_by` (`row_limit` · `source_cap`) dan `capped_sources`. Cara kerjanya:
+      `QueryOptions{MaxRows}` dipindah ke `Session.Query`, jadi **engine** yang menegakkan cap
+      (`web` tidak lagi memanggil `ApplyLimit` sebelum eksekusi — kalau masih, probe-nya mati karena
+      SQL sudah punya `LIMIT n`), statement dijalankan dengan cap+1 sebagai baris penanda, lalu
+      dibuang; baris penanda itulah bukti pemotongan, bukan dugaan "halaman penuh". Cap sumber ikut
+      dilaporkan: `StreamMongoCollections` kini mengembalikan `[]MongoMount` (jumlah dokumen +
+      `Truncated`) dan `CappedMongoViews()` meringkasnya. Ditest 7 kasus di `truncation_test.go`
+      (termasuk "pas penuh di bawah cap ≠ terpotong" dan prioritas `row_limit` di atas `source_cap`)
+      + `TestPlanLimit` + `TestCappedMongoViews`. Web memancarkan field ke `ExecuteQueryResponse`
+      (query biasa & share publik); **penanda di UI masuk M2** karena UI desktop belum ada.
 
 **Exit:** dua-duanya build & tes hijau dari satu salinan engine; paket `internal/` web tidak lagi
 berisi logika DuckDB; satu tes membuktikan build tanpa CGO gagal cepat.
 *(2026-10-31: terpenuhi untuk `go build/vet/test` dua modul × dua mode CGO; `internal/` sudah bersih dari
-DuckDB/exporter/ssh/ai/builder. Yang tersisa hanya bukti `docker build` (`make image-core`) dan dua butir
-`max_memory` + `truncated` di atas.)*
+DuckDB/exporter/ssh/ai/builder; kontrak §7.3 & §7.4 sudah ditegakkan di engine. Yang tersisa hanya bukti
+`docker build` (`make image-core`) dan butir `max_memory` di atas.)*
 
 ## M0 · Spike platform desktop (setelah M1)
 
@@ -104,8 +113,9 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
 - [ ] `SyncSchema` lintas driver (`connection_service.go:321,367` saat ini hanya Postgres dan diam).
 - [ ] Skema terkualifikasi penuh: `alias.schema.tabel`, PK/FK, nullability, komentar tabel/kolom,
       jumlah baris — mengganti `map[string][]ColumnDef` (`:344-348`). Ini prasyarat FR-2, FR-5, FR-10.
-- [ ] Penanda pemotongan Mongo mengalir dari `DefaultMongoDocLimit` (`nosql_adapter.go:18`) dan batas
-      jumlah collection (`:89`) sampai ke `QueryResult.truncated` dari M1.
+- [ ] Penanda pemotongan **sampai ke UI**: sisinya engine sudah selesai di M1.4 (`MongoMount.Truncated` →
+      `QueryResult.TruncatedBy = source_cap`), yang tersisa adalah menampilkan `truncated`/`truncated_by`/
+      `capped_sources` di result grid (FR-3) dan di pre-flight bundle (FR-11).
 - [ ] Sumber file v1: CSV + Parquet + JSON lewat `read_csv_auto`/`read_parquet`/`read_json_auto`
       (core DuckDB, tanpa extension per-OS). **Keputusan XLSX tercatat**: extension vs parse Go-side vs
       "simpan sebagai CSV/Parquet" — tanpa jalur diam-diam.

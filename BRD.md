@@ -13,7 +13,7 @@ Koreksi teknis yang mendasari revisi ini diverifikasi terhadap `muara.bi-service
 | Bagian | Perubahan | Alasan |
 |---|---|---|
 | §9 blocker | **§9.1 dicoret (sudah selesai)**; §9.2/9.3/9.4 dikonfirmasi dengan file:line | Mongo sudah ter-attach di jalur query (`session_preparer.go:208`) |
-| §4.2 kontrak | **+2 kontrak wajib**: engine harus gagal keras tanpa CGO; penanda "hasil terpotong" bagian dari result set | `session_fallback.go` membuat build non-CGO **berhasil palsu** — kontrak pertama **sudah dibereskan 2026-10-31**, lihat §10 butir 5 |
+| §4.2 kontrak | **+2 kontrak wajib**: engine harus gagal keras tanpa CGO; penanda "hasil terpotong" bagian dari result set | `session_fallback.go` membuat build non-CGO **berhasil palsu** — **kedua kontrak sudah ditegakkan di engine 2026-10-31**, lihat §10 butir 5 & 7.3 |
 | §4 stack | Go **1.25+** (bukan 1.27); UI = **port module, bukan port app** | toolchain nyata; logika visual Phase 4 sudah TS murni |
 | §5.3/5.4 bundle | Kredensial vs **alamat server dipisah jadi tiga tingkat** | v1 mengeluarkan host, yang merusak skenario "share ke rekan satu server" |
 | §6 model | **Entitas `Project` ditambahkan** — hanya membungkus Dashboard, keanggotaan View berupa referensi (bukan kepemilikan) | keputusan user 2026-10-30/31 |
@@ -206,6 +206,12 @@ Kelima hal ini tidak boleh hilang saat kode baru ditulis — di v1 statusnya eme
 2. **Guardrail.** Parameter selalu terikat `$n` tanpa konkatenasi nilai user; penolakan DDL/DML; auto-LIMIT; timeout eksekusi.
 3. **Penanda pemotongan.** `QueryResult` membawa `truncated` + alasannya (LIMIT disuntik · cap sumber · penolakan
    sebagian). UI wajib menandainya. Berlaku untuk agregasi Mongo di atas 10.000 dokumen dan untuk sumber file parsial.
+   **Ditegakkan di engine sejak 2026-10-31 (M1.4):** `duckdb.QueryResult` kini punya `row_limit`, `truncated`,
+   `truncated_by` (`row_limit` · `source_cap`) dan `capped_sources`. Deteksinya bukan tebakan: statement dijalankan
+   dengan LIMIT = cap+1 sebagai baris penanda; baris ekstra dibuang, dan keberadaannya adalah bukti bahwa jawaban
+   dipotong. Satu set yang pas penuh di bawah cap **tidak** ditandai. Cap dokumen Mongo dilaporkan per view
+   (`MongoMount.Truncated` → `CappedMongoViews`). Web sudah memancarkan field ini lewat `ExecuteQueryResponse`;
+   penanda di UI tetap masuk M2.
 4. **Gagal keras tanpa CGO.** Engine tidak boleh menjawab hasil dari memori saat DuckDB asli tidak ter-link.
 5. **AI metadata-only.** AI hanya membaca DDL/nama kolom/tipe/FK; tidak pernah membaca baris data; tidak pernah
    lookup kredensial. Output AI berupa **BuilderState**, bukan SQL mentah, sehingga tetap inspectable dan lewat
@@ -301,7 +307,7 @@ jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 | 1 | Mongo tidak ter-attach di jalur query | **SELESAI** — `session_preparer.go:208` memanggil `StreamMongoCollections` |
 | 2 | `SyncSchema` hanya Postgres | **BUKA** — `connection_service.go:321`, silent `return nil` di :367 |
 | 3 | Schema cache miskin (tanpa kualifikasi schema, PK/FK, nullability, komentar, jumlah baris) | **BUKA** — `ColumnDef` = `{Name, Type}` di `connection_service.go:344` |
-| 4 | Cap Mongo 10.000 dokumen & batas jumlah collection tanpa penanda | **BUKA** — `nosql_adapter.go:18`, `:89`, `:201` → diselesaikan oleh kontrak §7.3 |
+| 4 | Cap Mongo 10.000 dokumen & batas jumlah collection tanpa penanda | **SELESAI di engine 2026-10-31** — `StreamMongoCollections` mengembalikan `[]MongoMount` (jumlah dokumen + `Truncated`), `QueryResult.TruncatedBy = source_cap` membawa daftar view yang terpotong; `MaxMongoCollections` tetap gagal keras (bukan hasil parsial). **Yang tersisa cuma penanda di UI** → M2 |
 | 5 | Build non-CGO mengembalikan hasil palsu | **SELESAI 2026-10-31** — `NewEngine` mengembalikan `duckdb.ErrCGODisabled`, stub tidak bisa menghasilkan `QueryResult` lagi; dibuktikan `cgo_disabled_test.go` + `cgo_enabled_test.go` (kontrak §7.4 kini ditegakkan di engine) |
 | 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **BUKA** — FR-15 |
 | 7 | Bastion hanya dipakai Test Connection — jalur query & schema-sync tidak lewat tunnel | **BUKA, temuan 2026-10-31** — `connection_service.go:252-262` vs `:321` dan `session_preparer.go:193-202` → §5.7 aturan 1 & 2. Untuk DuckDB tidak ada jalan lain selain forwarder TCP lokal |

@@ -22,11 +22,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 ## 3. Status terkini
 
 - **Update terakhir:** 2026-10-31
-- **Fase aktif:** **M1 berjalan.** M1.1 (peta paket engine), M1.2 (CGO fail-fast) dan **M1.3 (ekstraksi
-  `muara.bi/engine`) selesai 2026-10-31** — engine sekarang satu modul di `muara.bi-service/backend/engine/`
-  dengan `go.mod` sendiri, dipakai web lewat `replace`. Belum ada `go.mod` desktop, belum ada skeleton
-  Wails — keduanya memang di belakang M1. Sisa M1: M1.4 (`QueryResult.truncated`) + `max_memory` +
-  satu bukti `docker build` yang butuh daemon Docker.
+- **Fase aktif:** **M1 berjalan.** M1.1 (peta paket engine), M1.2 (CGO fail-fast), **M1.3 (ekstraksi
+  `muara.bi/engine`)** dan **M1.4 (kontrak `QueryResult.truncated`)** selesai 2026-10-31 — engine sekarang
+  satu modul di `muara.bi-service/backend/engine/` dengan `go.mod` sendiri, dipakai web lewat `replace`.
+  Belum ada `go.mod` desktop, belum ada skeleton Wails — keduanya memang di belakang M1. Sisa M1:
+  `max_memory` jadi konfigurasi + satu bukti `docker build` yang butuh daemon Docker.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -40,7 +40,12 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   `entity.` dilepas dan `package service`/`entity` jadi `package builder` → `widget_service.go` memanggil
   `builder.CompileBuilderSQL` → `duckdb.SemanticModel` kehilangan `WorkspaceID`/`ProjectID` →
   `Dockerfile` + `Makefile` disetel ulang untuk modul bersarang. Gerbang 8/8: build/vet/test di dua modul ×
-  `CGO_ENABLED=1/0`, `gofmt -l` bersih.
+  `CGO_ENABLED=1/0`, `gofmt -l` bersih. → **M1.4** kontrak pemotongan ditegakkan di engine:
+  `Session.Query` menerima `QueryOptions{MaxRows, CappedSources}` (web **berhenti** memanggil `ApplyLimit`
+  sendiri — lihat catatan di §5), `PlanLimit` memisahkan teks-police dari akuntansi cap, eksekusi memakai
+  LIMIT cap+1 sebagai baris penanda yang dibuang, dan `StreamMongoCollections` mengembalikan `[]MongoMount`.
+  7 tes baru di `truncation_test.go` + `TestPlanLimit` + `TestCappedMongoViews`; BRD §10 butir 4 ikut
+  closed sisi engine.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -91,16 +96,23 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
     berbeda perilaku. Perbaikan masuk M2 (satu tempat, plus tes).
   - Belum ada tempat untuk CA privat (`rootcert`); default `sslmode=disable` salah untuk DB internal
     self-signed. Masuk FR-1 + blocker §10 butir 8.
+  - **Kontrak pemotongan (M1.4, diverifikasi 2026-10-31):** engine tidak menebak "halaman penuh = terpotong".
+    Statement dijalankan dengan `LIMIT cap+1`; kalau baris ke-(cap+1) benar-benar ada, hasilnya ditandai
+    `truncated_by=row_limit` dan baris penanda itu dibuang. 12 baris dengan cap 12 → **tidak** ditandai
+    (dibuktikan tes), cap 5 dari 12 → ditandai. Karena probe itu bergantung pada LIMIT yang engine tulis
+    sendiri, **web tidak boleh lagi mempre-apply `ApplyLimit`**: SQL yang sudah berisi `LIMIT n` membuat
+    probe tidak pernah melihat baris ekstra, sehingga semua hasil tampak utuh. Ini kontrak baru antara
+    engine dan pemanggil — desktop wajib meneruskan cap lewat `QueryOptions`, bukan lewat teks SQL.
 
 ## 4. Task berikutnya (urutan)
 
-1. **M1.4** `QueryResult.truncated` + alasannya sebagai kontrak engine (BRD §4.2.3): sekarang `LIMIT`
-   yang disuntik dan cap `DefaultMongoDocLimit = 10000` hanya bisa ditebak dari UI. Kerjakan di
-   `backend/engine/duckdb/`, tambahkan tes, dan jaga tetap hijau di dua mode CGO.
-2. **M1.5** `max_memory` jadi konfigurasi (hardcoded 2 GB per sesi di `engine/duckdb/session_cgo.go:38`).
-3. **Penutup M1 (butuh Docker aktif):** `make image-core` membuktikan stage `build` benar dengan modul
+1. **M1.5** `max_memory` jadi konfigurasi (hardcoded 2 GB per sesi di `engine/duckdb/session_cgo.go:38`).
+   Rencananya kecil: `GuardrailConfig.MaxMemory string` → kolom baru di engine + `SET max_memory=` dari sana,
+   dengan default tetap 2 GB; nilai web datang dari `config.DuckDBConfig` (`DUCKDB_MAX_MEMORY`), desktop dari
+   settings. Catatan BRD §5.7: `threads` (baris `:39`) ikut hardcoded dan masuk M0 karena pembundelan Windows.
+2. **Penutup M1 (butuh Docker aktif):** `make image-core` membuktikan stage `build` benar dengan modul
    bersarang. Ini satu-satunya exit criterion M1 yang belum punya bukti.
-4. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
+3. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
    `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan.
 
 ## 5. Kendala & catatan lingkungan
