@@ -32,31 +32,47 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       closure `go list -deps` atas `duckdb`, `exporter`, `ai`, `ssh`, `helper/cryptohelper`,
       `helper/sqlident` hanya berisi keenam paket itu (+`sqlident`). Tidak ada `config`/`domain`/`dto`/
       `repository`/`cache`/`limiter` di dalamnya → ekstraksi tidak menyeret istilah tenant.
-- [ ] `git mv` paket yang dipakai desktop keluar `internal/`: `duckdb/`, `exporter/`, `ssh/`, `ai/`,
-      `helper/cryptohelper`, `helper/sqlident`, **plus dua berkas** `service/widget_builder.go` dan
-      `domain/entity/widget_builder.go` (bukan paket `domain/entity` — isinya `user`/`permission`/
-      `project`/`share`/`alert`, semua multi-tenant; `widget_builder.go` hanya butuh 3 struct tanpa import).
-- [ ] Web mengganti import path (6 titik: `app/server`, `cache`, `dto/response`, `service`, `worker`, `exporter`);
-      `go build/vet/test ./...` hijau adalah gerbang, bukan opsional.
-- [ ] Keluarkan vocabulary tenant dari API engine: **jangan pindahkan `session_preparer.go`** — bagian yang
-      menempel Postgres hanya `:45-49` (2 interface repository, `*limiter.Semaphore`, `*logging.Logger`) dan
-      tipe `entity.DataConnection`/`ConnectionConfig`. Engine menerima struct plain (alias, driver, DSN,
-      daftar model); web dan desktop masing-masing memetakan sumbernya sendiri. Kunci `cryptohelper`
-      diterima sebagai `[]byte`, bukan dicari oleh engine (web: env master key, desktop: keychain).
-      **Aturan keras:** modul engine dilarang mengimpor `muara.bi/core/pkg/...` (customerror, logging) —
-      itu menciptakan dependensi balik ke modul web dan menutup siklus.
+- [x] **`git mv` selesai (2026-10-31)** — `backend/internal/{duckdb,exporter,ssh,ai}` dan
+      `backend/internal/helper/{cryptohelper,sqlident}` → `backend/engine/<nama>`, lalu dua berkas builder:
+      `internal/service/widget_builder.go` → `engine/builder/compile.go` (package `builder`) dan
+      `internal/domain/entity/widget_builder.go` → `engine/builder/state.go`. Semua tercatat sebagai
+      **rename** di `git status` (tidak pernah ada dua salinan). `helper/dberr` tinggal di web — ia memetakan
+      kode error Postgres, urusan milik orchestrator. Paket `domain/entity` yang multi-tenant tidak ikut pindah.
+- [x] **Web mengganti import path (2026-10-31)** — 6 titik (`app/server`, `cache`, `dto/response`, `service`,
+      `worker`, `exporter`) ditulis ulang dengan `find -print0 | xargs -0 perl -pi -e`; grep memastikan nol sisa
+      `muara.bi/core/internal/{duckdb,exporter,ssh,ai,cryptohelper,sqlident}`. Modul baru `backend/engine/go.mod`
+      (`module muara.bi/engine`, go 1.27.1) + `go.sum`; `backend/go.mod` mendapat
+      `require muara.bi/engine v0.0.0` + `replace muara.bi/engine => ./engine`.
+      **Gerbang hijau:** `go build/vet/test ./...` di KEDUA modul, `CGO_ENABLED=1` dan `CGO_ENABLED=0`
+      (delapan kombinasi, semuanya lolos; `gofmt -l` bersih).
+- [x] **Vocabulary tenant dikeluarkan dari API engine (2026-10-31)** — `duckdb.SemanticModel` tidak lagi
+      membawa `WorkspaceID`/`ProjectID` (engine buta tenant; kepemilikan tetap di `entity.SemanticModel` web);
+      satu-satunya sisa `workspace_id` di engine sudah dihapus, grep kini bersih.
+      **`session_preparer.go` memang tidak dipindah** — bagian Postgres-nya (`:45-49`, `:193-226`) tetap di web
+      dan meneruskan alias/driver/DSN ke engine sebagai struct plain. Kunci `cryptohelper` tetap diterima
+      sebagai `[]byte`. Tidak ada satu pun berkas `engine/` yang mengimpor `muara.bi/core/...`
+      (diverifikasi grep) → tidak ada siklus.
 - [x] **CGO fail-fast (2026-10-31)**: `NewEngine` jalur `!cgo` mengembalikan `duckdb.ErrCGODisabled`;
       seluruh metode stub mengembalikan error yang sama dan tidak mungkin lagi menghasilkan `QueryResult`
       (sebelumnya `session_fallback.go:42,49,56,83` menjawab `nil`/baris karangan). Ditest dua arah:
       `cgo_disabled_test.go` (refusal) + `cgo_enabled_test.go` (`SELECT 1` nyata, guard agar build tag
       tidak kebalik). `cmd/duckdb-bundle` dapat `//go:build cgo` karena `go-duckdb` v1.8.5 memang tidak
       bisa di-compile `CGO_ENABLED=0` — sebelumnya itu yang membuat jalur `!cgo` mustahil diuji di CI.
+- [x] **Alat build ikut disesuaikan (2026-10-31)** — `Dockerfile` stage `build` men-COPY
+      `backend/engine/go.mod` + `go.sum` ke `./engine/` **sebelum** `go mod download` (modul yang di-`replace`
+      ke direktori lokal harus sudah ada saat resolve), dan `Makefile` menjalankan `test`/`vet`/`tidy` di
+      **dua** modul dengan engine lebih dulu — kalau tidak, `./...` di `backend/` diam-diam berhenti
+      menyentuh logika DuckDB. Belum diverifikasi lewat build image: daemon Docker mati (milik user);
+      jalankan `make image-core` untuk menutup sisa exit criterion ini.
 - [ ] `max_memory` DuckDB jadi konfigurasi (sekarang hardcoded 2 GB/sesi di `session_cgo.go`).
 - [ ] Kontrak hasil: `QueryResult` membawa penanda `truncated` + alasannya (LIMIT disuntik / cap
       sumber), supaya kontrak BRD §7 ditegakkan di engine, bukan di UI.
 
 **Exit:** dua-duanya build & tes hijau dari satu salinan engine; paket `internal/` web tidak lagi
 berisi logika DuckDB; satu tes membuktikan build tanpa CGO gagal cepat.
+*(2026-10-31: terpenuhi untuk `go build/vet/test` dua modul × dua mode CGO; `internal/` sudah bersih dari
+DuckDB/exporter/ssh/ai/builder. Yang tersisa hanya bukti `docker build` (`make image-core`) dan dua butir
+`max_memory` + `truncated` di atas.)*
 
 ## M0 · Spike platform desktop (setelah M1)
 

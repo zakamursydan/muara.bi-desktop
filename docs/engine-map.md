@@ -116,3 +116,45 @@ CGO_ENABLED=0 go build ./...       → ok
 CGO_ENABLED=0 go vet ./...         → ok
 CGO_ENABLED=0 go test ./...        → EXIT=0  (TestEngine_WithoutCGORefuses PASS, tes engine lain SKIP)
 ```
+
+## 6. Eksekusi M1.3 (2026-10-31) — batas di atas jadi modul sungguhan
+
+Tabel §1-§4 di atas adalah **pengukuran sebelum pindah**; paths-nya memakai nama lama. Setelah M1.3,
+yang dibaca desktop adalah:
+
+```
+muara.bi-service/backend/
+├── go.mod                  module muara.bi/core   + require muara.bi/engine v0.0.0
+│                                                    + replace muara.bi/engine => ./engine
+└── engine/                 module muara.bi/engine (go 1.27.1, punya go.sum sendiri)
+    ├── duckdb/  exporter/  ai/  ssh/  cryptohelper/  sqlident/  builder/
+```
+
+`builder/` isi dua berkas hasil penggabungan yang direncanakan §4: `state.go` (3 struct, dulu
+`domain/entity/widget_builder.go`) dan `compile.go` (dulu `service/widget_builder.go`). `package
+service`/`entity` → `package builder`; prefix `entity.` dihapus; satu-satunya konsumen
+`internal/service/widget_service.go` kini memanggil `builder.CompileBuilderSQL(builder.WidgetBuilderState)`.
+
+Bukti akhir, diukur (bukan diasumsikan):
+
+- `grep -r "muara.bi/core" backend/engine/` → **nol**. Aturan anti-siklus §3 tegak.
+- Dependensi eksternal engine tepat empat: `marcboeker/go-duckdb`, `xuri/excelize/v2`,
+  `go.mongodb.org/mongo-driver`, `golang.org/x/crypto/ssh`. Tidak `pgx`, tidak `chi`, tidak `asynq`,
+  tidak `goose`, tidak `redis` → desktop tidak menarik server web.
+- Istilah tenant di API engine dinolkan: `duckdb.SemanticModel` kehilangan `WorkspaceID`/`ProjectID`
+  (dulu satu-satunya bocoran, `semantic_layer.go:14-15`). Kepemilikan tetap di `entity.SemanticModel`
+  web; pemetaan terjadi di `session_preparer.go:142` yang **tidak** pindah — persis keputusan §3.
+- `helper/dberr` sengaja ditinggal di web: ia memetakan kode error Postgres (23505 → 409), urusan
+  orkestrator, dan akan menyeret `pgx` ke dalam engine.
+- Gerbang 8/8 hijau: `go build`/`go vet`/`go test` di **dua** modul × `CGO_ENABLED=1` dan `CGO_ENABLED=0`;
+  `gofmt -l` bersih di repo.
+
+Dua jebakan yang ditemukan saat menutup M1.3 dan sudah ikut dibetulkan:
+
+1. **`./...` berhenti menjangkau engine.** Modul bersarang otomatis dikeluarkan dari main module, jadi
+   target lama (`make test`, `go test ./...`) tetap exit 0 tanpa pernah menjalankan satu tes DuckDB pun.
+   `Makefile` sekarang menjalankan engine lebih dulu, baru core, di `test`/`vet`/`tidy`.
+2. **Urunan COPY di Dockerfile.** `go mod download` dengan `replace` ke direktori lokal butuh `go.mod`
+   targetnya ada; stage build kini men-COPY `backend/engine/go.mod` + `go.sum` ke `./engine/` sebelum
+   download. Belum dibuktikan dengan `docker build` sungguhan — daemon Docker di mesin ini mati, jadi
+   itu langkah penutup M1 yang tersisa.

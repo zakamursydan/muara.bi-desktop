@@ -22,9 +22,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 ## 3. Status terkini
 
 - **Update terakhir:** 2026-10-31
-- **Fase aktif:** **M1 berjalan.** M1.1 (peta paket engine) dan M1.2 (CGO fail-fast) selesai; M1.3
-  (`git mv` ke modul `muara.bi/engine`) berikutnya. Belum ada `go.mod` desktop, belum ada skeleton
-  Wails — keduanya memang di belakang M1.
+- **Fase aktif:** **M1 berjalan.** M1.1 (peta paket engine), M1.2 (CGO fail-fast) dan **M1.3 (ekstraksi
+  `muara.bi/engine`) selesai 2026-10-31** — engine sekarang satu modul di `muara.bi-service/backend/engine/`
+  dengan `go.mod` sendiri, dipakai web lewat `replace`. Belum ada `go.mod` desktop, belum ada skeleton
+  Wails — keduanya memang di belakang M1. Sisa M1: M1.4 (`QueryResult.truncated`) + `max_memory` +
+  satu bukti `docker build` yang butuh daemon Docker.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -32,7 +34,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   ("Tiga jalur transport": langsung · VPN · bastion-sebagai-forwarder-lokal) lahir dari pertanyaan user
   "host-nya privat tapi laptop sudah connect VPN, apakah muara.bi masih bisa connect?" — jawabannya ya,
   karena yang menghubungi database adalah proses di laptop, ikut routing & DNS VPN, sama seperti DataGrip.
-  Tiga blocker ikut ditemukan dan masuk BRD §10 butir 7-9.
+  Tiga blocker ikut ditemukan dan masuk BRD §10 butir 7-9. → **M1.3** ekstraksi engine di repo web:
+  9 `git mv` (semua tercatat sebagai rename, tidak pernah ada salinan kedua) → `engine/go.mod`
+  (`module muara.bi/engine`) + `replace` di `backend/go.mod` → import ditulis ulang di 6 titik → prefix
+  `entity.` dilepas dan `package service`/`entity` jadi `package builder` → `widget_service.go` memanggil
+  `builder.CompileBuilderSQL` → `duckdb.SemanticModel` kehilangan `WorkspaceID`/`ProjectID` →
+  `Dockerfile` + `Makefile` disetel ulang untuk modul bersarang. Gerbang 8/8: build/vet/test di dua modul ×
+  `CGO_ENABLED=1/0`, `gofmt -l` bersih.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -40,8 +48,8 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   - Berkas koneksi saat export dipecah **tiga tingkat**: selalu ikut (alias/driver/database) · ikut dengan
     toggle (host/port/user/SSH) · tidak pernah ikut default (password/token → keychain per mesin).
     Ini memperbaiki v1 yang mengeluarkan host dan membuat "share ke rekan satu server" menyakitkan.
-  - Ekspor hasil ke CSV/XLSX/JSON/Parquet = **reuse** `internal/exporter/` (`WriteXLSX` sudah ada, excelize
-    streaming, pure Go) dan **tidak mewarisi LIMIT tampilan**.
+  - Ekspor hasil ke CSV/XLSX/JSON/Parquet = **reuse** `engine/exporter/` (dulu `internal/exporter/`;
+    `WriteXLSX` sudah ada, excelize streaming, pure Go) dan **tidak mewarisi LIMIT tampilan**.
   - Impor `.xlsx` sebagai *sumber* data ditunda dari v1 (berbeda dari ekspor — jangan tertukar).
 - **Keputusan yang sudah dikunci:**
   1. Ekstraksi engine **mendahului** spike platform (membalik urutan §14 BRD) — karena aturan
@@ -54,6 +62,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
      engine di repo ini, perubahan engine harus hijau di dua konsumen.
 - **Verifikasi teknis yang jadi dasar keputusan (semua dari `muara.bi-service` hari ini):**
   - Suite web hijau: `go build ./... && go vet ./... && go test ./...` exit 0, `gofmt -l` bersih.
+  - **Kemerdekaan engine, dibuktikan dengan grep (2026-10-31):** nol `muara.bi/core` di seluruh `backend/engine/`,
+    dan dependensi eksternalnya cuma empat — `go-duckdb`, `excelize/v2`, `mongo-driver`, `golang.org/x/crypto/ssh`.
+    Tidak ada `pgx`, tidak ada `chi`, tidak ada `asynq`: desktop tidak akan pernah menarik server web.
+  - **Jebakan modul bersarang** (berlaku juga untuk repo desktop nanti): begitu `engine/go.mod` ada, `./...`
+    di `backend/` **berhenti** menyentuh paket engine — tes DuckDB bisa hilang tanpa ada yang sadar. Karena itu
+    `make test/vet/tidy` kini menjalankan dua modul, engine lebih dulu, dan `Dockerfile` men-COPY
+    `engine/go.mod`+`go.sum` sebelum `go mod download`.
   - BRD §9.1 (Mongo tidak ter-attach di jalur query) **sudah selesai**: `session_preparer.go:208`.
   - BRD §9.2 benar: `connection_service.go:321` hanya Postgres, `:367` `return nil` untuk driver lain.
   - BRD §9.3 benar dan lebih parah: `ColumnDef` hanya `{Name, Type}` (`connection_service.go:344`).
@@ -79,14 +94,14 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 
 ## 4. Task berikutnya (urutan)
 
-1. **M1.3 `git mv`** engine keluar `internal/` ke modul `muara.bi/engine` dalam **satu commit** di repo
-   web: 6 paket (§1 engine-map) + `service/widget_builder.go` + `domain/entity/widget_builder.go`, lalu
-   ganti import di 6 titik konsumen. Gerbang: `go build/vet/test ./...` hijau di web.
-   **Aturan yang harus ikut ditulis:** modul engine dilarang mengimpor `muara.bi/core/pkg/...`
-   (customerror/logging) — dependensi balik menutup siklus; dan `session_preparer.go` **tidak** pindah.
-2. **M1.4** `QueryResult.truncated` + alasannya sebagai kontrak engine (BRD §4.2.3), sekaligus
-   `max_memory` jadi konfigurasi (sekarang hardcoded 2 GB di `session_cgo.go:38`).
-3. Baru setelah itu: spike M0 (Wails + CI per-OS).
+1. **M1.4** `QueryResult.truncated` + alasannya sebagai kontrak engine (BRD §4.2.3): sekarang `LIMIT`
+   yang disuntik dan cap `DefaultMongoDocLimit = 10000` hanya bisa ditebak dari UI. Kerjakan di
+   `backend/engine/duckdb/`, tambahkan tes, dan jaga tetap hijau di dua mode CGO.
+2. **M1.5** `max_memory` jadi konfigurasi (hardcoded 2 GB per sesi di `engine/duckdb/session_cgo.go:38`).
+3. **Penutup M1 (butuh Docker aktif):** `make image-core` membuktikan stage `build` benar dengan modul
+   bersarang. Ini satu-satunya exit criterion M1 yang belum punya bukti.
+4. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
+   `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan.
 
 ## 5. Kendala & catatan lingkungan
 
