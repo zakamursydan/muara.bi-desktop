@@ -50,7 +50,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   angka hardcode yang digantikannya) divalidasi `NormalizeMaxMemory` di `NewEngine` sehingga config salah
   gagal di startup, dan web membacanya dari `DUCKDB_MAX_MEMORY`; tiga tes baru (`TestNormalizeMaxMemory`,
   `TestEngineAppliesConfiguredMemoryBudget`, `TestEngineRejectsUnusableMemoryBudget`), gerbang empat-mode
-  tetap hijau.
+  tetap hijau. → **Bug DSN + validasi `ssl_mode` ditutup di repo web** (bukan butir checklist M1; permintaan
+  user 2026-10-31): `service.postgresDSN` jadi satu perakit conninfo untuk SyncSchema **dan** ATTACH dengan
+  `dsnValue` (quote aturan libpq), `normalizeSSLMode` menegakkan enam mode libpq di titik tulis + saat merakit,
+  dan tiga handler koneksi berhenti memaksa error validasi jadi 500. Enam tes baru, `go test ./...` hijau di
+  dua mode CGO; **belum teruji lewat HTTP** (daemon Docker mati).
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -92,16 +96,25 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
     pihak ketiga ikut didistribusikan. Verifikasi ulang di tag Wails v3 yang dikunci saat M0.
   - **Transport (BRD §5.7), diverifikasi dari kode 2026-10-31:** bastion hanya di-dial pada Test Connection
     (`connection_service.go:252-262`); `SyncSchema` (`:321`) dan `attachConnection`
-    (`session_preparer.go:203` → `postgresDSN` `:262`) memakai `cfg.Host` mentah → di belakang bastion, UI hijau tapi query gagal.
+    (`attachConnection` → `service.postgresDSN`) memakai `cfg.Host` mentah → di belakang bastion, UI hijau tapi query gagal.
     DuckDB tidak menerima `net.Conn`, jadi solusinya forwarder TCP lokal + DSN `127.0.0.1:<port>`.
-  - Bug produk web, **direproduksi lalu DIPERBAIKI 2026-10-31**: `connection_service.go:322-326` menghasilkan
+  - Bug produk web, **direproduksi lalu DIPERBAIKI 2026-10-31**: `SyncSchema` menghasilkan
     `... sslmode= sslmode=disable` saat `ssl_mode` kosong; `pgx.ParseConfig` menolaknya dengan
     `cannot parse ...: failed to configure TLS (sslmode is invalid)` → SyncSchema Postgres gagal total untuk
-    koneksi tanpa `ssl_mode`, sementara `session_preparer.go` memberi default `disable` (dua jalur, dua perilaku).
+    koneksi tanpa `ssl_mode`, sementara jalur query memberi default `disable` (dua jalur, dua perilaku).
     Sekarang satu perakit DSN dipakai keduanya (`service.postgresDSN`), dan nilai dari user di-quote per aturan
-    libpq sehingga spasi tidak memecah nilai dan kredensial tak bisa menyuntik parameter lain. Empat tes
+    libpq sehingga spasi tidak memecah nilai dan kredensial tak bisa menyuntik parameter lain. Enam tes
     (`session_preparer_test.go`, salah satunya membuktikan bentuk DSN lama benar-benar ditolak pgx).
     Manfaat untuk M2: pekerjaan forwarder bastion sekarang cuma menyentuh satu fungsi.
+  - **Lanjutan yang penting untuk cara desktop menulis API (2026-10-31):** `ssl_mode` ditutup **di titik tulis**
+    (`normalizeSSLMode` enam mode libpq → 400 sebelum kredensial dienkripsi/disimpan) **dan** di
+    `postgresDSN` (kembali `(string, error)`) supaya profil lama tidak diam-diam turun mode — `verify` yang
+    maksudnya `verify-full` berarti tanpa pemeriksaan sertifikat. Ternyata ada cacat kedua di belakangnya:
+    handler `Create`/`UpsertEnvironment`/`SyncSchema` memetakan **semua** error service ke 500, jadi error
+    validasi yang sudah dibuat dengan benar pun tidak pernah sampai ke pemanggil sebagai 400. Pelajaran untuk
+    desktop: (1) validasi di titik tulis, (2) gerbang saat membaca/mengeksekusi juga, (3) peta error mapper
+    service → status HTTP itu wajib, dan (4) UI tidak cukup jadi bukti — form web sudah membatasi lewat
+    `<Select>`, hanya API-nya yang terbuka.
   - Belum ada tempat untuk CA privat (`rootcert`); default `sslmode=disable` salah untuk DB internal
     self-signed. Masuk FR-1 + blocker §10 butir 8.
   - **Kontrak pemotongan (M1.4, diverifikasi 2026-10-31):** engine tidak menebak "halaman penuh = terpotong".
@@ -132,9 +145,12 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 3. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
    `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. `threads` per sesi
    masih hardcoded 2 (`engine/duckdb/session_cgo.go`) dan sengaja dibawa ke M0 bersama profil CPU mesin.
-4. Sisa pekerjaan SSL setelah bug DSN ditutup (masuk M2, jangan tertukar dengan yang sudah selesai):
-   `rootcert`/CA privat (BRD §10 butir 8) dan validasi `ssl_mode` di request supaya nilai typo menjawab 400
-   alih-alih gagal saat koneksi (`dto/request/connection.go:23` sampai kini tidak divalidasi).
+4. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
+   sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
+   memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
+5. Verifikasi yang masih menunggu infra: perubahan DSN/validasi ini **baru terbukti di level unit**;
+   HTTP-nya (400 sungguhan dari `POST .../environments`) belum bisa dites karena daemon Docker mati,
+   jadi API + Postgres/Redis lokal tidak jalan.
 
 ## 5. Kendala & catatan lingkungan
 

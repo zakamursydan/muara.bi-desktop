@@ -155,15 +155,16 @@ harus selalu terlihat: jalur mana yang sedang dipakai.
 Empat aturan mengikat:
 
 1. **Test Connection wajib menembus jalur yang sama dengan jalur query.** Di edisi web hari ini bastion hanya
-   di-dial pada Test Connection (`connection_service.go:252-262`), sementara `SyncSchema` membuka pgx dengan DSN
-   polos (`:321`) dan `attachConnection` mengirim `cfg.Host` apa adanya ke DuckDB (`session_preparer.go:193-202`).
+   di-dial pada Test Connection (`ConnectionService.TestConnection`), sementara `SyncSchema` membuka pgx dengan DSN
+   polos dan `attachConnection` mengirim `cfg.Host` apa adanya ke DuckDB (keduanya lewat
+   `service.postgresDSN`, `internal/service/session_preparer.go`).
    Hasilnya: "koneksi sukses, 12 ms" lalu seluruh query gagal. Desktop tidak boleh mewarisi bentuk ini.
 2. **DuckDB tidak menerima `net.Conn`** — scanner postgres/mysql membuat koneksinya sendiri di sisi C dari string
    DSN. Jadi bastion **tidak bisa** dipakai ala pgx (`WithDialFunc`); implementasinya harus forwarder dengan DSN
    menunjuk ke `127.0.0.1:<port>`, dan umur forwarder = umur sesi.
 3. **CA privat.** Database di jaringan internal umumnya bersertifikat self-signed, sehingga `sslmode` saja tidak
    cukup: dibutuhkan `rootcert` (path, ikut aturan relatif §5.5) dan alur "percayai sertifikat ini". Hari ini DSN
-   hanya merakit `sslmode` dan default-nya `disable` (`service.postgresDSN`, `session_preparer.go:262`); tidak ada tempat menaruh CA.
+   hanya merakit `sslmode` dan default-nya `disable` (`service.postgresDSN` di web); tidak ada tempat menaruh CA.
 4. **Pesan kegagalan harus membedakan tiga sebab** yang tindakannya beda: *host tidak terjangkau* (belum VPN /
    firewall), *nama tidak teresolusi* (DNS tidak dikirim VPN — jangan tulis "connection refused"), dan
    *kredensial ditolak / TLS gagal*. Pre-flight import (§FR-11) memakai pesan yang sama: "10.20.3.4:5432 tidak
@@ -306,15 +307,15 @@ jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 
 | # | Blocker | Status |
 |---|---|---|
-| 1 | Mongo tidak ter-attach di jalur query | **SELESAI** — `session_preparer.go:208` memanggil `StreamMongoCollections` |
+| 1 | Mongo tidak ter-attach di jalur query | **SELESAI** — `attachConnection` (web, `internal/service/session_preparer.go`) memanggil `StreamMongoCollections` |
 | 2 | `SyncSchema` hanya Postgres | **BUKA** — `connection_service.go:321`, silent `return nil` di :367 |
 | 3 | Schema cache miskin (tanpa kualifikasi schema, PK/FK, nullability, komentar, jumlah baris) | **BUKA** — `ColumnDef` = `{Name, Type}` di `connection_service.go:344` |
 | 4 | Cap Mongo 10.000 dokumen & batas jumlah collection tanpa penanda | **SELESAI di engine 2026-10-31** — `StreamMongoCollections` mengembalikan `[]MongoMount` (jumlah dokumen + `Truncated`), `QueryResult.TruncatedBy = source_cap` membawa daftar view yang terpotong; `MaxMongoCollections` tetap gagal keras (bukan hasil parsial). **Yang tersisa cuma penanda di UI** → M2 |
 | 5 | Build non-CGO mengembalikan hasil palsu | **SELESAI 2026-10-31** — `NewEngine` mengembalikan `duckdb.ErrCGODisabled`, stub tidak bisa menghasilkan `QueryResult` lagi; dibuktikan `cgo_disabled_test.go` + `cgo_enabled_test.go` (kontrak §7.4 kini ditegakkan di engine) |
 | 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **SELESAI di engine 2026-10-31 (M1.5)** — `GuardrailConfig.MaxMemory` + `NormalizeMaxMemory` (gagal di startup kalau bukan angka+unit; default tetap 2 GB). Web sudah membacanya dari `DUCKDB_MAX_MEMORY`. **Yang tersisa: pengaturannya di UI settings desktop** → FR-15 |
-| 7 | Bastion hanya dipakai Test Connection — jalur query & schema-sync tidak lewat tunnel | **BUKA, temuan 2026-10-31** — `connection_service.go:252-262` vs `:321` dan `session_preparer.go:193-202` → §5.7 aturan 1 & 2. Untuk DuckDB tidak ada jalan lain selain forwarder TCP lokal |
-| 8 | Tidak ada tempat untuk CA privat (`rootcert`); `sslmode` default `disable` | **BUKA, temuan 2026-10-31** — perakit DSN kini satu tempat (`session_preparer.go:262`, lihat butir 9) tapi hanya merakit `sslmode` dengan default `disable`; tidak ada field CA. → §5.7 aturan 3 |
-| 9 | `SyncSchema` Postgres selalu gagal kalau `ssl_mode` kosong | **SELESAI 2026-10-31 (di produk web, desktop ikut sehat)** — `connection_service.go:322-326` dulu menghasilkan `... sslmode= sslmode=disable` dan `pgx.ParseConfig` menolaknya (`cannot parse ...: failed to configure TLS (sslmode is invalid)`). Keduanya kini memakai `service.postgresDSN(cfg)` (`session_preparer.go:262`): satu default `disable`, nilai user di-quote per aturan libpq (`dsnValue:275`) sehingga kredensial berspasi maupun yang menyamar jadi parameter lain tidak bisa menembus DSN. Empat tes di `session_preparer_test.go`, salah satunya membuktikan bentuk DSN lama memang ditolak. **`ssl_mode` masih belum divalidasi di `dto/request/connection.go:23`** — nilai typo baru ketahuan saat koneksi gagal, bukan sebagai 400; masuk M2 bersama butir 8 |
+| 7 | Bastion hanya dipakai Test Connection — jalur query & schema-sync tidak lewat tunnel | **BUKA, temuan 2026-10-31** — `TestConnection` mende-dial bastion, sedangkan `SyncSchema` dan `attachConnection` memakai `cfg.Host` lewat `service.postgresDSN` → §5.7 aturan 1 & 2. Untuk DuckDB tidak ada jalan lain selain forwarder TCP lokal |
+| 8 | Tidak ada tempat untuk CA privat (`rootcert`); `sslmode` default `disable` | **BUKA, temuan 2026-10-31** — perakit DSN kini satu tempat (`service.postgresDSN`, lihat butir 9) tapi hanya merakit `sslmode` dengan default `disable`; tidak ada field CA. → §5.7 aturan 3 |
+| 9 | `SyncSchema` Postgres selalu gagal kalau `ssl_mode` kosong | **SELESAI 2026-10-31 (di produk web, desktop ikut sehat)** — `SyncSchema` dulu menghasilkan `... sslmode= sslmode=disable` dan `pgx.ParseConfig` menolaknya (`cannot parse ...: failed to configure TLS (sslmode is invalid)`). Keduanya kini memakai `service.postgresDSN(cfg)`: satu default `disable`, nilai user di-quote per aturan libpq (`dsnValue`) sehingga kredensial berspasi maupun yang menyamar jadi parameter lain tidak bisa menembus DSN. Enam tes di `session_preparer_test.go`, salah satunya membuktikan bentuk DSN lama memang ditolak. **`ssl_mode` juga divalidasi di titik tulis (2026-10-31):** `normalizeSSLMode` menolak nilai di luar enam mode libpq, `UpsertEnvironment` menjawab 400 sebelum menyimpan, dan handler `Create`/`UpsertEnvironment`/`SyncSchema` ikut dibetulkan supaya error validasi tidak lagi dipaksa jadi 500 |
 
 ## 11. Roadmap
 
