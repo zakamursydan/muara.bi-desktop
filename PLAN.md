@@ -64,7 +64,20 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       **dua** modul dengan engine lebih dulu — kalau tidak, `./...` di `backend/` diam-diam berhenti
       menyentuh logika DuckDB. Belum diverifikasi lewat build image: daemon Docker mati (milik user);
       jalankan `make image-core` untuk menutup sisa exit criterion ini.
-- [ ] `max_memory` DuckDB jadi konfigurasi (sekarang hardcoded 2 GB/sesi di `session_cgo.go`).
+- [x] **`max_memory` DuckDB jadi konfigurasi (2026-10-31, M1.5)** — `GuardrailConfig.MaxMemory string`
+      dengan `duckdb.DefaultMaxMemory = "2GB"` (sama dengan angka yang tadinya di-hardcode di
+      `session_cgo.go`); `NewEngine` memvalidasi lewat `NormalizeMaxMemory` sehingga **konfigurasi salah
+      gagal di startup**, bukan diam-diam memakai budget lama. Nilai masuk ke `SET max_memory=` lewat
+      `quoteLiteral`. Web membacanya dari `config.DuckDBConfig.MaxMemory` (`DUCKDB_MAX_MEMORY`, default
+      `2GB`) → `internal/app/server/service.go:59`; **desktop nanti mengambil field yang sama dari
+      profilnya** (FR-15), tidak ada jalur kedua.
+      Dua hal yang perlu diingat saat menulis settings desktop: (1) DuckDB membaca `"256MB"` sebagai
+      256 × 10⁶ byte tetapi menampilkannya dalam MiB (`244.1 MiB`), jadi label "2 GB" = 1,86 GiB efektif;
+      (2) puncak memori = **jumlah sesi × budget per sesi**, jadi settings harus menampilkan keduanya
+      bersama. Angka polos seperti `"2048"` ditolak (DuckDB membacanya sebagai byte).
+      `threads` (baris `:39`) sengaja tetap hardcoded 2 dan ditandai di kode — masuk M0.
+      Ditest: `TestNormalizeMaxMemory` (CGO-free), `TestEngineAppliesConfiguredMemoryBudget` dan
+      `TestEngineRejectsUnusableMemoryBudget` (CGO, bandingkan **byte** lewat `current_setting`).
 - [x] **Kontrak hasil `truncated` (2026-10-31, M1.4)** — `duckdb.QueryResult` menambah `row_limit`,
       `truncated`, `truncated_by` (`row_limit` · `source_cap`) dan `capped_sources`. Cara kerjanya:
       `QueryOptions{MaxRows}` dipindah ke `Session.Query`, jadi **engine** yang menegakkan cap
@@ -80,8 +93,8 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
 **Exit:** dua-duanya build & tes hijau dari satu salinan engine; paket `internal/` web tidak lagi
 berisi logika DuckDB; satu tes membuktikan build tanpa CGO gagal cepat.
 *(2026-10-31: terpenuhi untuk `go build/vet/test` dua modul × dua mode CGO; `internal/` sudah bersih dari
-DuckDB/exporter/ssh/ai/builder; kontrak §7.3 & §7.4 sudah ditegakkan di engine. Yang tersisa hanya bukti
-`docker build` (`make image-core`) dan butir `max_memory` di atas.)*
+DuckDB/exporter/ssh/ai/builder; kontrak §7.3 & §7.4 sudah ditegakkan di engine; `max_memory` sudah jadi
+config. Yang tersisa hanya bukti `docker build` (`make image-core`) — daemon Docker ada di tangan user.)*
 
 ## M0 · Spike platform desktop (setelah M1)
 

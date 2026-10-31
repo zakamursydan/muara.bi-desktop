@@ -158,3 +158,17 @@ Dua jebakan yang ditemukan saat menutup M1.3 dan sudah ikut dibetulkan:
    targetnya ada; stage build kini men-COPY `backend/engine/go.mod` + `go.sum` ke `./engine/` sebelum
    download. Belum dibuktikan dengan `docker build` sungguhan — daemon Docker di mesin ini mati, jadi
    itu langkah penutup M1 yang tersisa.
+
+## 7. Permukaan API engine setelah M1.4–M1.5 (2026-10-31)
+
+Dua kontrak berubah di sisi yang harus dipakai desktop; keduanya sudah ditegakkan **di engine**, jadi
+implementasi desktop tidak perlu mengulang policing-nya:
+
+- `Session.Query(ctx, sql string, opts QueryOptions, args ...any)` — `QueryOptions{MaxRows, CappedSources}`.
+  Cap ditegakkan di sini (eksekusi memakai `LIMIT cap+1`, baris ekstra jadi bukti pemotongan lalu dibuang),
+  **bukan** lewat teks SQL. `QueryResult` membawa `RowLimit`, `Truncated`, `TruncatedBy`
+  (`row_limit` · `source_cap`) dan `CappedSources`; prioritas `row_limit` di atas `source_cap`.
+  Kalau desktop memanggil `ApplyLimit` sendiri sebelum `Query`, probe-nya mati dan semua hasil tampak utuh.
+- `GuardrailConfig.MaxMemory` (`"2GB"` default, `duckdb.DefaultMaxMemory`) — divalidasi `NormalizeMaxMemory`
+  di `NewEngine`, sehingga nilai salah mengembalikan error alih-alih budget lama. Desktop memasok ini dari
+  settings (FR-15); web dari `DUCKDB_MAX_MEMORY`.

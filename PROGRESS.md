@@ -23,10 +23,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 
 - **Update terakhir:** 2026-10-31
 - **Fase aktif:** **M1 berjalan.** M1.1 (peta paket engine), M1.2 (CGO fail-fast), **M1.3 (ekstraksi
-  `muara.bi/engine`)** dan **M1.4 (kontrak `QueryResult.truncated`)** selesai 2026-10-31 — engine sekarang
-  satu modul di `muara.bi-service/backend/engine/` dengan `go.mod` sendiri, dipakai web lewat `replace`.
+  `muara.bi/engine`)**, **M1.4 (kontrak `QueryResult.truncated`)** dan **M1.5 (`max_memory` jadi
+  konfigurasi)** selesai 2026-10-31 — engine sekarang satu modul di `muara.bi-service/backend/engine/`
+  dengan `go.mod` sendiri, dipakai web lewat `replace`.
   Belum ada `go.mod` desktop, belum ada skeleton Wails — keduanya memang di belakang M1. Sisa M1:
-  `max_memory` jadi konfigurasi + satu bukti `docker build` yang butuh daemon Docker.
+  **satu bukti `docker build` (`make image-core`)** yang butuh daemon Docker milik user.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -45,7 +46,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   sendiri — lihat catatan di §5), `PlanLimit` memisahkan teks-police dari akuntansi cap, eksekusi memakai
   LIMIT cap+1 sebagai baris penanda yang dibuang, dan `StreamMongoCollections` mengembalikan `[]MongoMount`.
   7 tes baru di `truncation_test.go` + `TestPlanLimit` + `TestCappedMongoViews`; BRD §10 butir 4 ikut
-  closed sisi engine.
+  closed sisi engine. → **M1.5** `GuardrailConfig.MaxMemory` (`duckdb.DefaultMaxMemory = "2GB"`, sama dengan
+  angka hardcode yang digantikannya) divalidasi `NormalizeMaxMemory` di `NewEngine` sehingga config salah
+  gagal di startup, dan web membacanya dari `DUCKDB_MAX_MEMORY`; tiga tes baru (`TestNormalizeMaxMemory`,
+  `TestEngineAppliesConfiguredMemoryBudget`, `TestEngineRejectsUnusableMemoryBudget`), gerbang empat-mode
+  tetap hijau.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -103,17 +108,27 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
     sendiri, **web tidak boleh lagi mempre-apply `ApplyLimit`**: SQL yang sudah berisi `LIMIT n` membuat
     probe tidak pernah melihat baris ekstra, sehingga semua hasil tampak utuh. Ini kontrak baru antara
     engine dan pemanggil — desktop wajib meneruskan cap lewat `QueryOptions`, bukan lewat teks SQL.
+  - **Batas memori (M1.5, diverifikasi 2026-10-31):** `SET max_memory` sekarang datang dari
+    `GuardrailConfig.MaxMemory` (`"2GB"` bila tidak diisi) dan `NewEngine` menolak nilai yang tidak
+    berbentuk angka+unit — `"2048"` ditolak karena DuckDB membacanya sebagai **byte**, bukan 2 GB.
+    Dua fakta yang harus ikut masuk settings desktop (FR-15): DuckDB menyimpan `"256MB"` sebagai
+    256 × 10⁶ byte tapi `current_setting('max_memory')` menampilkannya dalam MiB (`244.1 MiB`), jadi
+    label "2 GB" efektifnya 1,86 GiB; dan puncak pemakaian = **jumlah sesi × budget per sesi**.
+    Untuk pertanyaan BRD §18 butir 6 (laptop 8 GB / 16 GB): secara teknis sudah bisa diubah per pengguna,
+    tinggal diputuskan angka default + pengingat bahwa DuckDB juga bisa menulis ke disk saat kelebihan
+    memori (`temp_directory` — belum pernah disentuh sama sekali).
 
 ## 4. Task berikutnya (urutan)
 
-1. **M1.5** `max_memory` jadi konfigurasi (hardcoded 2 GB per sesi di `engine/duckdb/session_cgo.go:38`).
-   Rencananya kecil: `GuardrailConfig.MaxMemory string` → kolom baru di engine + `SET max_memory=` dari sana,
-   dengan default tetap 2 GB; nilai web datang dari `config.DuckDBConfig` (`DUCKDB_MAX_MEMORY`), desktop dari
-   settings. Catatan BRD §5.7: `threads` (baris `:39`) ikut hardcoded dan masuk M0 karena pembundelan Windows.
-2. **Penutup M1 (butuh Docker aktif):** `make image-core` membuktikan stage `build` benar dengan modul
-   bersarang. Ini satu-satunya exit criterion M1 yang belum punya bukti.
+1. **Penutup M1 (butuh Docker aktif):** `make image-core` membuktikan stage `build` benar dengan modul
+   bersarang. Ini satu-satunya exit criterion M1 yang belum punya bukti — semua butir checklist lain
+   (M1.1–M1.5) sudah selesai dan hijau pada 2026-10-31.
+2. **Keputusan kecil yang terbuka (BRD §18 butir 6):** angka default `max_memory` untuk laptop 8 GB/16 GB
+   dan apakah settings desktop memaknai "GB" sebagai GiB agar tidak membingungkan (engine sudah menerima
+   `MB`/`GB`/`TB` desimal dari DuckDB).
 3. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
-   `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan.
+   `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. `threads` per sesi
+   masih hardcoded 2 (`engine/duckdb/session_cgo.go`) dan sengaja dibawa ke M0 bersama profil CPU mesin.
 
 ## 5. Kendala & catatan lingkungan
 

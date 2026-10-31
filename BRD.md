@@ -287,7 +287,9 @@ UI: alert hanya jalan saat aplikasi terbuka. Email menyusul (belum ada SMTP send
 Kontrak §7.5 mengikat. BYOK: API key user sendiri, disimpan di keychain.
 
 **FR-15 Settings.** Profil lokal (pemetaan alias → host + kredensial, status keychain terlihat), penyedia AI,
-kanal alert, **batas memori DuckDB per sesi** (hari ini hardcoded 2 GB di `session_cgo.go` — harus jadi config),
+kanal alert, **batas memori DuckDB per sesi** (engine sudah menerima `GuardrailConfig.MaxMemory` sejak M1.5
+2026-10-31, default 2 GB; tinggal memajangnya di UI — ingat DuckDB memakai unit desimal, jadi "2 GB" efektifnya
+1,86 GiB, dan puncak = kadar ini × jumlah sesi paralel),
 jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 
 ## 9. Kebutuhan non-fungsional & keamanan
@@ -309,7 +311,7 @@ jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 | 3 | Schema cache miskin (tanpa kualifikasi schema, PK/FK, nullability, komentar, jumlah baris) | **BUKA** — `ColumnDef` = `{Name, Type}` di `connection_service.go:344` |
 | 4 | Cap Mongo 10.000 dokumen & batas jumlah collection tanpa penanda | **SELESAI di engine 2026-10-31** — `StreamMongoCollections` mengembalikan `[]MongoMount` (jumlah dokumen + `Truncated`), `QueryResult.TruncatedBy = source_cap` membawa daftar view yang terpotong; `MaxMongoCollections` tetap gagal keras (bukan hasil parsial). **Yang tersisa cuma penanda di UI** → M2 |
 | 5 | Build non-CGO mengembalikan hasil palsu | **SELESAI 2026-10-31** — `NewEngine` mengembalikan `duckdb.ErrCGODisabled`, stub tidak bisa menghasilkan `QueryResult` lagi; dibuktikan `cgo_disabled_test.go` + `cgo_enabled_test.go` (kontrak §7.4 kini ditegakkan di engine) |
-| 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **BUKA** — FR-15 |
+| 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **SELESAI di engine 2026-10-31 (M1.5)** — `GuardrailConfig.MaxMemory` + `NormalizeMaxMemory` (gagal di startup kalau bukan angka+unit; default tetap 2 GB). Web sudah membacanya dari `DUCKDB_MAX_MEMORY`. **Yang tersisa: pengaturannya di UI settings desktop** → FR-15 |
 | 7 | Bastion hanya dipakai Test Connection — jalur query & schema-sync tidak lewat tunnel | **BUKA, temuan 2026-10-31** — `connection_service.go:252-262` vs `:321` dan `session_preparer.go:193-202` → §5.7 aturan 1 & 2. Untuk DuckDB tidak ada jalan lain selain forwarder TCP lokal |
 | 8 | Tidak ada tempat untuk CA privat (`rootcert`); `sslmode` default `disable` | **BUKA, temuan 2026-10-31** — `session_preparer.go:196-201` → §5.7 aturan 3 |
 | 9 | `SyncSchema` Postgres selalu gagal kalau `ssl_mode` kosong | **BUKA, temuan 2026-10-31, direproduksi** — `connection_service.go:322-326` menghasilkan `... sslmode= sslmode=disable`; diverifikasi dengan `pgx.ParseConfig`: `cannot parse ...: failed to configure TLS (sslmode is invalid)`. Jadi bukan sekadar rapuh — DSN-nya ditolak. `ssl_mode` tidak divalidasi/di-default-kan di `dto/request/connection.go:23`. Berlaku juga di produk web |
@@ -422,7 +424,10 @@ otomatis di M4.
 3. Batas ukuran & jumlah file per bundle — diukur di M3, bukan ditebak sekarang.
 4. Mode Present butuh ekspor PDF/snapshot?
 5. Impor `.xlsx` sebagai sumber: extension DuckDB vs parse Go-side — ditunda, tapi perlu keputusan sebelum v1.x.
-6. Batas memori default per sesi untuk laptop 8 GB/16 GB (FR-15) — angka awal 4 GB?
+6. Batas memori default per sesi untuk laptop 8 GB/16 GB (FR-15) — angka awal 4 GB? Sisi engine sudah siap
+   (M1.5 2026-10-31: `GuardrailConfig.MaxMemory`), jadi ini murni keputusan UI + label. Perlu diputuskan juga
+   apakah menampilkan "GB" sebagai GiB: DuckDB membaca `256MB` sebagai 256 × 10⁶ byte tapi menulisnya kembali
+   dalam MiB, sehingga "4 GB" di layar bukan 4 GiB RAM.
 
 ## 16. Cara melanjutkan di mesin/model baru
 
