@@ -1,0 +1,32 @@
+# Go
+/bin/
+dist/
+*.test
+coverage.out
+
+# Wails / frontend
+node_modules/
+frontend/dist/
+build/bin/
+wails.json.local
+
+# Environment & rahasia lokal
+.env
+.env.local
+*.muara
+!tests/fixtures/*.muara
+keychain-test-*.db
+
+# Artefak build produk
+*.dmg
+*.msi
+*.exe
+*.app
+*.duckdb_extension
+vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
