@@ -156,8 +156,9 @@ Dua jebakan yang ditemukan saat menutup M1.3 dan sudah ikut dibetulkan:
    `Makefile` sekarang menjalankan engine lebih dulu, baru core, di `test`/`vet`/`tidy`.
 2. **Urunan COPY di Dockerfile.** `go mod download` dengan `replace` ke direktori lokal butuh `go.mod`
    targetnya ada; stage build kini men-COPY `backend/engine/go.mod` + `go.sum` ke `./engine/` sebelum
-   download. Belum dibuktikan dengan `docker build` sungguhan — daemon Docker di mesin ini mati, jadi
-   itu langkah penutup M1 yang tersisa.
+   download. Sudah dibuktikan dengan `make image-core` pada 2026-10-31: download 33 dtk tanpa error,
+   dan binary di dalam image mencatat `muara.bi/engine v0.0.0` tanpa hash (= resolve dari `replace` lokal).
+   Untuk desktop ini bukti penting: engine yang sama bisa dipakai dua produk tanpa salinan kedua.
 
 ## 7. Permukaan API engine setelah M1.4–M1.5 (2026-10-31)
 

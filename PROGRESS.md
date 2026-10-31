@@ -22,12 +22,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 ## 3. Status terkini
 
 - **Update terakhir:** 2026-10-31
-- **Fase aktif:** **M1 berjalan.** M1.1 (peta paket engine), M1.2 (CGO fail-fast), **M1.3 (ekstraksi
+- **Fase aktif:** **M1 selesai 2026-10-31.** M1.1 (peta paket engine), M1.2 (CGO fail-fast), **M1.3 (ekstraksi
   `muara.bi/engine`)**, **M1.4 (kontrak `QueryResult.truncated`)** dan **M1.5 (`max_memory` jadi
-  konfigurasi)** selesai 2026-10-31 — engine sekarang satu modul di `muara.bi-service/backend/engine/`
-  dengan `go.mod` sendiri, dipakai web lewat `replace`.
-  Belum ada `go.mod` desktop, belum ada skeleton Wails — keduanya memang di belakang M1. Sisa M1:
-  **satu bukti `docker build` (`make image-core`)** yang butuh daemon Docker milik user.
+  konfigurasi)** tuntas, dan exit criterion terakhir dibuktikan `make image-core` — image web benar-benar
+  dibangun dari engine di `muara.bi-service/backend/engine/` (lewat `replace`), bukan dari salinan kedua.
+  Belum ada `go.mod` desktop, belum ada skeleton Wails: itu isi **M0**, fase yang sekarang boleh dimulai.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -54,7 +53,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   user 2026-10-31): `service.postgresDSN` jadi satu perakit conninfo untuk SyncSchema **dan** ATTACH dengan
   `dsnValue` (quote aturan libpq), `normalizeSSLMode` menegakkan enam mode libpq di titik tulis + saat merakit,
   dan tiga handler koneksi berhenti memaksa error validasi jadi 500. Enam tes baru, `go test ./...` hijau di
-  dua mode CGO; **belum teruji lewat HTTP** (daemon Docker mati).
+  dua mode CGO; **masih belum teruji lewat HTTP** — butuh `muara_api` dibangun ulang, dan stack user sedang jalan.
+  → **Penutup M1** (`make image-core`, 2026-10-31): build image web hijau dari awal sampai akhir —
+  `go mod download` 33 dtk dengan stage build men-COPY `engine/go.mod` ke `./engine/` lebih dulu, tiga binary
+  CGO ter-link 206 dtk, extensions `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` ter-bundle,
+  `muara-bi-core:dev` 369 MB. Bukti yang paling relevan untuk desktop: `go version -m /usr/local/bin/api`
+  (diambil dari dalam container) mencantumkan `muara.bi/engine v0.0.0` **tanpa hash**, jadi engine di-resolve
+  dari direktori lokal — satu salinan engine, dua produk, tidak ada duplikasi yang diam-diam.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -136,21 +141,20 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 
 ## 4. Task berikutnya (urutan)
 
-1. **Penutup M1 (butuh Docker aktif):** `make image-core` membuktikan stage `build` benar dengan modul
-   bersarang. Ini satu-satunya exit criterion M1 yang belum punya bukti — semua butir checklist lain
-   (M1.1–M1.5) sudah selesai dan hijau pada 2026-10-31.
-2. **Keputusan kecil yang terbuka (BRD §18 butir 6):** angka default `max_memory` untuk laptop 8 GB/16 GB
+1. **Keputusan kecil yang terbuka (BRD §18 butir 6):** angka default `max_memory` untuk laptop 8 GB/16 GB
    dan apakah settings desktop memaknai "GB" sebagai GiB agar tidak membingungkan (engine sudah menerima
    `MB`/`GB`/`TB` desimal dari DuckDB).
-3. Baru setelah itu: spike M0 (Wails + CI per-OS) — dan repo desktop ikut memakai engine lewat
+2. Spike **M0** (Wails + CI per-OS) — M1 sudah punya bukti lengkap, jadi tidak ada lagi yang menahan.
+   Repo desktop ikut memakai engine lewat
    `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. `threads` per sesi
    masih hardcoded 2 (`engine/duckdb/session_cgo.go`) dan sengaja dibawa ke M0 bersama profil CPU mesin.
-4. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
+3. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
    sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
-5. Verifikasi yang masih menunggu infra: perubahan DSN/validasi ini **baru terbukti di level unit**;
-   HTTP-nya (400 sungguhan dari `POST .../environments`) belum bisa dites karena daemon Docker mati,
-   jadi API + Postgres/Redis lokal tidak jalan.
+4. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
+   (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
+   stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
+   *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*
 
 ## 5. Kendala & catatan lingkungan
 

@@ -62,8 +62,10 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       `backend/engine/go.mod` + `go.sum` ke `./engine/` **sebelum** `go mod download` (modul yang di-`replace`
       ke direktori lokal harus sudah ada saat resolve), dan `Makefile` menjalankan `test`/`vet`/`tidy` di
       **dua** modul dengan engine lebih dulu — kalau tidak, `./...` di `backend/` diam-diam berhenti
-      menyentuh logika DuckDB. Belum diverifikasi lewat build image: daemon Docker mati (milik user);
-      jalankan `make image-core` untuk menutup sisa exit criterion ini.
+      menyentuh logika DuckDB. **Dibuktikan `make image-core` 2026-10-31:** image `muara-bi-core:dev` 369 MB
+      build hijau, dan `go version -m` atas `/usr/local/bin/api` keluar dari container mencantumkan
+      `muara.bi/engine v0.0.0` tanpa hash — artinya engine di-resolve dari `replace => ./engine`, bukan disalin.
+      Ini bukti yang desktop butuhkan: satu salinan engine, dua produk.
 - [x] **`max_memory` DuckDB jadi konfigurasi (2026-10-31, M1.5)** — `GuardrailConfig.MaxMemory string`
       dengan `duckdb.DefaultMaxMemory = "2GB"` (sama dengan angka yang tadinya di-hardcode di
       `session_cgo.go`); `NewEngine` memvalidasi lewat `NormalizeMaxMemory` sehingga **konfigurasi salah
@@ -92,9 +94,9 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
 
 **Exit:** dua-duanya build & tes hijau dari satu salinan engine; paket `internal/` web tidak lagi
 berisi logika DuckDB; satu tes membuktikan build tanpa CGO gagal cepat.
-*(2026-10-31: terpenuhi untuk `go build/vet/test` dua modul × dua mode CGO; `internal/` sudah bersih dari
-DuckDB/exporter/ssh/ai/builder; kontrak §7.3 & §7.4 sudah ditegakkan di engine; `max_memory` sudah jadi
-config. Yang tersisa hanya bukti `docker build` (`make image-core`) — daemon Docker ada di tangan user.)*
+*(2026-10-31: **M1 ditutup.** `go build/vet/test` hijau dua modul × dua mode CGO; `internal/` sudah bersih dari
+DuckDB/exporter/ssh/ai/builder; kontrak §7.3 & §7.4 ditegakkan di engine; `max_memory` jadi konfigurasi; dan
+`make image-core` membuktikan image web dibangun dari engine yang sama. Naik ke M0.)*
 
 ## M0 · Spike platform desktop (setelah M1)
 

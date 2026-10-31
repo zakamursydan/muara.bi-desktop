@@ -324,8 +324,8 @@ sebelum satu fitur pun ditulis. Exit criteria lengkap ada di [PLAN.md](PLAN.md).
 
 | Milestone | Isi | Exit criteria |
 |---|---|---|
-| **M1 · Modul engine** | `git mv` paket §4 keluar `internal/` jadi `muara.bi/engine` (satu commit, web ganti import); keluarkan istilah tenant dari API engine (scope opaque, `KeyProvider`); kontrak §7.3 & §7.4; `max_memory` jadi config | build & tes hijau di kedua konsumen dari **satu salinan**; satu tes membuktikan build tanpa CGO gagal cepat |
-| **M0 · Spike platform** | Skeleton Wails v3 + CGO + DuckDB asli + extension offline di **Windows, macOS, Linux**; CI per-OS | `SELECT` nyata tampil di grid di Windows; `LOAD` extension saat jaringan dimatikan; jawab 3 pertanyaan Windows (§11.1); matikan CGO → aplikasi menolak start |
+| **M1 · Modul engine** — **SELESAI 2026-10-31** | `git mv` paket §4 keluar `internal/` jadi `muara.bi/engine` (satu commit, web ganti import); keluarkan istilah tenant dari API engine (scope opaque, `KeyProvider`); kontrak §7.3 & §7.4; `max_memory` jadi config | build & tes hijau di kedua konsumen dari **satu salinan**; satu tes membuktikan build tanpa CGO gagal cepat. *(Dibuktikan di sisi web; sisi konsumen kedua baru ada di M0. `make image-core` memastikan image web build dari engine lokal, bukan salinan.)* |
+| **M0 · Spike platform** ← sekarang | Skeleton Wails v3 + CGO + DuckDB asli + extension offline di **Windows, macOS, Linux**; CI per-OS | `SELECT` nyata tampil di grid di Windows; `LOAD` extension saat jaringan dimatikan; jawab 3 pertanyaan Windows (§11.1); matikan CGO → aplikasi menolak start |
 | **M2 · Bersihkan blocker** | Sync schema semua driver (#2), schema terkualifikasi + PK/FK (#3), penanda pemotongan sampai UI (#4), sumber file CSV/Parquet/JSON | tree menampilkan kolom Mongo & Postgres berdampingan; query lintas dua alias jalan; pemotongan selalu ditandai |
 | **M3 · Bundle sebagai storage** | Format `.muara` + `projects.json`, save atomik, View kelas satu, **path relatif** (§5.5), `secrets.enc` argon2id | save → buka ulang mempertahankan View utuh; grep isi bundle = nol string kredensial |
 | **M4 · Round-trip** | FR-10 + FR-11 termasuk pre-flight, remap alias, remap path | lulus skenario §13 sebagai **tes regresi otomatis**, bukan checklist manual |
@@ -438,6 +438,7 @@ Baca tiga berkas ini saja — dokumen ini sengaja self-contained:
 2. [PLAN.md](PLAN.md) — urutan eksekusi + exit criteria
 3. [PROGRESS.md](PROGRESS.md) — titik terakhir & fakta terverifikasi
 
-Mulai dari **M1**, bukan M0 dan bukan UI. Detail koreksi terhadap kode lama (dengan file:line) ada di
+Mulai dari **M0** (spike platform) — **M1 sudah selesai 2026-10-31**, jangan diulang; statusnya ada di
+PROGRESS §3. Bukan UI dulu. Detail koreksi terhadap kode lama (dengan file:line) ada di
 [docs/brd-review.md](docs/brd-review.md); dasar keputusan modul engine ada di
 [docs/adr/0001-engine-module.md](docs/adr/0001-engine-module.md).
