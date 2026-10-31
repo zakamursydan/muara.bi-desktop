@@ -132,7 +132,10 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 
 ## 5. Kendala & catatan lingkungan
 
-- Mesin ini: macOS arm64, Go 1.25.0, Docker Desktop VM 4 GB. DuckDB linux/darwin sudah terverifikasi
+- Mesin ini: macOS arm64, Docker Desktop VM 4 GB. `go` di `/usr/local/go/bin` adalah 1.25.0, tapi
+  `GOTOOLCHAIN=auto` memakai toolchain **1.27.1** yang di-download ke module cache (dua `go.mod`
+  meminta `go 1.27.1`) — artinya build di mesin ini butuh cache itu; offline tanpa cache build gagal
+  dengan pesan "go.mod requires go >= 1.27.1". DuckDB linux/darwin sudah terverifikasi
   di produk web; **Windows belum pernah disentuh sama sekali** — M0 adalah pertama kalinya.
 - BRD §18 menyuruh membaca `muara-bi-desktop-wireframes.canvas.tsx`, tapi file itu tidak ada di
   repo web, di repo ini, maupun di `Downloads`. Sebagai gantinya sudah dibuat wireframe sendiri:
