@@ -77,6 +77,13 @@ realtime, mobile, plugin marketplace, **impor `.xlsx` sebagai sumber data**, ema
   Modul ini dipakai ulang langsung dari `muara.bi-service/frontend/src/`: `lib/echarts-options.ts` (tick `315K`,
   area gradasi, donut tengah, `outerBoundsMode:'same'` untuk ECharts 6, pemangkasan tanggal ISO), `lib/color.ts`
   (validasi hex ketat), `lib/table-theme.ts`, `grid.tsx`, inspector drawer, `chart-palette-fields.tsx`, datapabel.
+- **Lantai OS: macOS 14 (Sonoma) ke atas.** Ditetapkan 2026-11-01 dari hasil link, bukan dari klaim Wails:
+  arsip statis DuckDB yang dipakai engine di-compile untuk 14.0, dan biner yang mem-pin `minos` lebih rendah
+  hanya berjanji bisa jalan di mesin yang tidak pernah kita uji. Build macOS wajib menyetel
+  `CGO_LDFLAGS="-mmacosx-version-min=14.0"` dan mengassert `otool -l` — tanpa pin, angka itu diambil dari SDK
+  mesin build (berarti installer dari runner macOS 15 akan menolak jalan di Sonoma). Bukti dan tabel pengukuran
+  di [docs/engine-map.md](docs/engine-map.md) §13. Lantai linux (baseline glibc arsip DuckDB) dan windows belum
+  diukur; ia pertanyaan M0 yang sama dan jawabannya ikut ke CI per-OS.
 - **Dibuang dari stack server:** Postgres metadata, Redis, Asynq. Gantinya: pool goroutine in-process untuk job
   async, LRU in-memory + SQLite lokal untuk cache/history (SQLite via `modernc.org/sqlite`, pure Go).
 

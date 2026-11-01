@@ -336,5 +336,56 @@ Sisi negatifnya dijaga `TestBundledExtensionDirectoryStaysOffline` di engine (bu
 folder tetap kosong). Untuk linux/windows, pakai `--network none` dan runner windows di CI; itu bukti yang
 lebih kuat daripada trik di atas, bukan pengulangan pekerjaan.
 
+## 13. Deployment target macOS: siapa yang menentukan `minos`, dan apa yang boleh diiklankan (2026-11-01)
+
+Pertanyaannya bukan "berapa warning yang kita dapat", tapi "biner yang kita kirim mengklaim bisa jalan di OS
+berapa". Angka itu ditulis di `LC_BUILD_VERSION.minos`, dan hari ini ia **bukan pilihan kita**: ia hasil
+direktif `#cgo LDFLAGS` Wails dan default SDK mesin build. Tabelnya dari build nyata di mesin ini (`otool -l`,
+warning dihitung dari log link):
+
+| build | flag | `minos` | warning `built for newer` |
+|---|---|---|---|
+| `go build ./cmd/spike` (tanpa Wails) | — | **14.0** | 0 |
+| `go build ./cmd/spike` | `MACOSX_DEPLOYMENT_TARGET=11.0` | 11.0 | 43 |
+| `go build .` (app Wails) | — | **11.0** | 50 |
+| `go build .` | `MACOSX_DEPLOYMENT_TARGET=12.0` | 11.0 | 50 (tidak berubah) |
+| `go build .` | `CGO_LDFLAGS=-mmacosx-version-min=13.0` | 13.0 | 49 |
+| `go build .` | `CGO_LDFLAGS=-mmacosx-version-min=14.0` | **14.0** | **0** |
+
+**Tiga mekanisme, dan kenapa catatan lama "`MACOSX_DEPLOYMENT_TARGET` tidak berpengaruh" salah separuh.**
+
+1. Tanpa flag apa pun, clang memakai **versi mayor SDK mesin** sebagai default — diukur dengan satu berkas
+   C polos: `clang t.c` → `minos 14.0` (SDK 14.4). Karena itu biner `cmd/spike` hari ini 14.0, dan biner yang
+   sama di runner macOS 15 akan mengklaim 15.0. Angka produk tidak boleh diturunkan dari SDK mesin build.
+2. `MACOSX_DEPLOYMENT_TARGET` **hanya default**, bukan flag. Ia kalah oleh `-mmacosx-version-min` yang
+   ditulis eksplisit di mana pun — termasuk di dalam kode orang lain. Test lama memakai nilai `14.0` yang
+   kebetulan **sama dengan default mesin**, jadi "tidak ada perubahan" adalah false negative: dengan
+   `11.0` pada build non-Wails, `minos` benar-benar turun dan 43 warning muncul. Pelajarannya dicatat
+   di PROGRESS §3 (temuan 4): jangan simpulkan sebuah knob tidak berpengaruh sebelum
+   mengetesnya dengan nilai yang berbeda dari default.
+3. Yang menulis `11.0` di biner app adalah Wails: `pkg/application/application_darwin.go:8` (v3.0.0) membawa
+   `#cgo LDFLAGS: -framework Cocoa -mmacosx-version-min=10.13`, dan ld64 menjepit 10.13 ke **11.0** karena
+   itu lantai arm64. Jadi setiap biner yang men-link `pkg/application` mengiklankan Big Sur — padahal isi
+   arsip statis DuckDB di-compile untuk 14.0. Dibuktikan tanpa Wails lewat reproduksi tiga berkas: satu paket
+   dengan `#cgo LDFLAGS: -mmacosx-version-min=10.13` memberi `minos 11.0`, dan paket yang sama dibangun dengan
+   `CGO_LDFLAGS="-mmacosx-version-min=14.0"` memberi `minos 14.0` — jadi flag environment **mengalahkan**
+   direktif di dalam kode orang lain. Urutan persisnya di baris perintah clang tidak di-trace (link Go
+   memakai `-x` tidak menampilkan flag eksternal dengan rapi di mesin ini); yang diterima sebagai bukti adalah
+   hasilnya, dan itu sudah cukup untuk menyetel angka produk.
+
+**Keputusan: pin `CGO_LDFLAGS="-mmacosx-version-min=14.0"` saat build macOS, dan iklankan minimum
+macOS 14 (Sonoma).** 14.0 adalah target terendah yang masih link tanpa satu pun warning (50 warning muncul
+lagi di 11.0, 49 di 13.0 — persis seperti komposisi object arsip: 49 pada 14.0, 1 pada 13.0). Wails sendiri
+mendukung 12.0 (Taskfile darwin-nya mem-pin 12.0 dan ada tes yang mengasertinya), tapi klaim 12.0 lebih
+rendah dari lantai kode engine kita, dan mesin dengan macOS 12/13 tidak tersedia di sini — jadi tidak ada yang
+bisa membuktikan bahwa ia benar-benar jalan. Memilih angka yang lebih tinggi adalah
+satu-satunya klaim yang bisa dipertanggungjawabkan hari ini; menurunkannya nanti butuh bukti, bukan optimisme.
+
+**Yang ikut dibawa ke butir CI per-OS:** build tanpa pin tidak bisa direproduksi (`minos` ikut SDK runner), jadi
+langkah `macos` wajib menyetel pin **dan** membaca `otool -l <biner> | grep -A4 LC_BUILD_VERSION` sebagai
+gerbang — assert `minos` sama dengan angka yang diiklankan. Warning `built for newer` tidak dipakai sebagai
+gerbang: ia juga muncul dari `go.o` buatan toolchain Go itu sendiri (terbukti pada program cgo tiga baris),
+jadi ia bising bahkan ketika tidak ada yang salah.
+
 
 

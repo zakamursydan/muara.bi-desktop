@@ -146,15 +146,20 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
      Yang masih bisa dibersihkan (keputusan user, bukan tindakan diam-diam): `go clean -cache` ±3,1 GB,
      cache modul Go ±4,6 GB (naik ±1,4 GB hari ini karena pin Wails), `Docker.raw` ±15 GB,
      `frontend/node_modules` web ±747 MB.
-  4. **`MACOSX_DEPLOYMENT_TARGET` tidak mengubah apa pun pada link Go + CGO ini.** Ditest 2026-11-01:
-     build biasa mengeluarkan 50 warning `was built for newer 'macOS' version … than being linked (11.0)`
-     (49 object pada 14.0, 1 pada 13.0 — arsip statis DuckDB), dan build ulang dengan
-     `MACOSX_DEPLOYMENT_TARGET=14.0` menghasilkan **warning yang sama banyaknya** sementara
-     `otool -l` tetap `LC_BUILD_VERSION … minos 11.0` (sdk 14.4). Jadi biner hari ini **berklaim** jalan di
-     Big Sur padahal berisi kode yang di-compile untuk Sonoma; itu bukan sekadar warning kosmetik. Yang belum
-     dicoba dan jadi pekerjaan CI: `CGO_LDFLAGS="-mmacosx-version-min=14.0"` (Go mengabaikan env var
-     standar itu untuk own linker-nya). Keputusan minimum OS produk harus ditetapkan **sebelum** installer
-     pertama, bukan dibiarkan jadi kebetulan.
+  4. **Kesimpulan "`MACOSX_DEPLOYMENT_TARGET` tidak mengubah apa pun" adalah false negative — dan sudah
+     dikoreksi di hari yang sama (2026-11-01).** Kesalahannya metode, bukan alat: nilainya diuji dengan `14.0`,
+     yang kebetulan **sama dengan default mesin** (tanpa flag, clang memakai versi mayor SDK — diukur dengan
+     satu berkas C polos: `minos 14.0`). Tidak ada perubahan lalu disimpulkan tidak berpengaruh. Diuji ulang
+     dengan angka yang berbeda: `MACOSX_DEPLOYMENT_TARGET=11.0` pada build non-Wails menurunkan `minos` ke 11.0
+     dan memunculkan 43 warning. Kenapa biner **app** tetap 11.0: Wails v3.0.0 menulis
+     `#cgo LDFLAGS: -framework Cocoa -mmacosx-version-min=10.13` di `pkg/application/application_darwin.go:8`,
+     dan env var itu hanya *default* — ia kalah oleh flag eksplisit dari paket orang lain; ld64 menjepit 10.13
+     ke 11.0 (lantai arm64). Yang bisa menyetel angka produk:
+     `CGO_LDFLAGS="-mmacosx-version-min=14.0"` → `minos 14.0`, nol warning. Keputusan produk ikut ditetapkan:
+     **minimum macOS 14 (Sonoma)**, karena 14.0 target terendah yang link bersih (13.0 → 49 warning, 11.0 → 50)
+     dan tidak ada mesin 12/13 untuk membuktikan klaim yang lebih rendah. Tabel lengkap + recipe build ada di
+     [docs/engine-map.md](docs/engine-map.md) §13. Pelajaran yang disimpan: **jangan simpulkan sebuah knob tidak
+     berpengaruh sebelum mengetesnya dengan nilai yang berbeda dari default.**
 - **RAM per OS terbaca, dan default `min(4GiB, RAM/4)` lahir dari angka mesin nyata (2026-11-01, M0
   butir "cara membaca RAM total"):** paket baru `internal/meminfo` — satu fungsi `Total()` dengan tiga
   implementasi per-OS (`meminfo_darwin.go`: `unix.SysctlUint64("hw.memsize")`; `meminfo_linux.go`: baris
@@ -189,7 +194,7 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   `v1.1.3/osx_arm64/{postgres,mysql,sqlite}_scanner.duckdb_extension` (+ tiga `.info` 165–168 byte).
   Angka yang sebelumnya belum pernah diukur siapa pun: **extension connector = 103 MB**
   (postgres 32 MB, sqlite 32 MB, mysql 38 MB) di atas biner aplikasi 62 MiB — jadi ukuran installer produk
-  ini realistically ±170 MB, dan itu harus disebut di BRD §11 sebelum ada yang menjanjikan "unduhannya kecil".
+  ini realistically ±170 MB, dan itu harus disebut di BRD §9 sebelum ada yang menjanjikan "unduhannya kecil".
   Versi DuckDB yang dikunci go-duckdb v1.8.5 ikut terukur: **v1.1.3**, dan nama folder `<versi>/<platform>`
   adalah alasan bundel **wajib** dibuat per-OS (mesin ini menghasilkan `osx_arm64`, bukan `linux_amd64`).
   **Buktinya bukan "coba dan lihat berhasil":** folder bundel disalin lalu di-`chmod -R a-w` (hanya-baca) dan
@@ -302,15 +307,19 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
    Yang belum: pemasangan `meminfo.Budget` ke `NewQueryService` (butuh UI pengaturan FR-15, M4);
    bundel extension di **linux & windows** (darwin/arm64 sudah terbukti, lihat bullet §3 2026-11-01);
    CI per-OS — dan catatan: repo ini **belum punya remote**, jadi workflow CI belum bisa membuktikan apa pun
-   sampai ada hosting; tiga pertanyaan Windows; **minimum macOS yang benar** (`CGO_LDFLAGS`
-   belum dicoba — lihat temuan 4 di §3); dan apakah `threads` perlu ikut profil —
+   sampai ada hosting; tiga pertanyaan Windows; dan apakah `threads` perlu ikut profil —
    sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
    Sudah terjawab 2026-11-01: **cara membaca RAM total per OS** (`internal/meminfo`, tiga OS enam GOARCH
-   ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`) dan **bundel extension di macOS**
-   (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong).
+   ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`), **bundel extension di macOS**
+   (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong), dan **minimum macOS = 14 (Sonoma)**
+   lewat pin `CGO_LDFLAGS` (temuan 4 di §3 sudah dikoreksi dan §13 engine-map menutup pertanyaannya).
    Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
    `CGO_ENABLED=1 MUARA_SPIKE_PG_DSN="…" go run .` — klik "Attach Postgres sample" → "Jalankan query".
-   Kalau mau memakai berkas extension yang sudah di-bundle, tambahkan `DUCKDB_EXTENSION_DIRECTORY=/tmp/muara-ext`.
+   Build macOS sebaiknya memakai `CGO_LDFLAGS="-mmacosx-version-min=14.0"` (lihat §5).
+   Berkas extension hasil spike (`/tmp/muara-ext`, `/tmp/duckdb-bundle`) **sudah dihapus 2026-11-01** sesuai
+   permintaan; untuk menjalankan langkah itu lagi, buat bundelnya lebih dulu lewat alat di repo web
+   (`cd ../muara.bi-service/backend && CGO_ENABLED=1 go run ./cmd/duckdb-bundle -out <folder>`) lalu arahkan
+   `DUCKDB_EXTENSION_DIRECTORY` ke sana.
    Kalau `go build` gagal dengan `pattern all:frontend/dist: no matching files found`, itu artinya langkah
    `npm run build` dilewat, bukan ada yang rusak di Go.
 2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
@@ -352,8 +361,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   ```sh
   export PATH="/Users/macbookpro/Library/Application Support/JetBrains/GoLand2025.2/node/versions/24.22.0/bin:$PATH"
   cd frontend && npm ci && npm run build && cd ..
-  CGO_ENABLED=1 go build -o bin/muara-spike .
+  CGO_ENABLED=1 CGO_LDFLAGS="-mmacosx-version-min=14.0" go build -o bin/muara-spike .
+  otool -l bin/muara-spike | grep -A4 LC_BUILD_VERSION   # harus minos 14.0
   ```
+
+  Pin `CGO_LDFLAGS` itu bukan hiasan: tanpa ia, `minos` ditulis oleh direktif Wails (11.0) atau oleh SDK mesin
+  build, dan keduanya bukan angka yang boleh kita iklankan — lihat temuan 4 di §3 dan
+  [docs/engine-map.md](docs/engine-map.md) §13.
 
   Untuk mengubah jembatan: tambah method **terekspor** di `query_service.go`, lalu
   `.tools/bin/wails3 generate bindings -d frontend/bindings` (butuh `CGO_ENABLED=1`), baru `npm run build`

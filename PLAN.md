@@ -142,7 +142,12 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       windows). macOS memang yang paling sulit, jadi jangan pakai kemacetan di sini sebagai alasan menunda
       dua OS lainnya.
 - [ ] CI per-OS (macOS/Linux/Windows). Bundel extension **tidak** di-commit dari satu mesin:
-      `cmd/duckdb-bundle` dijalankan per-OS karena folder hasilnya per-platform.
+      `cmd/duckdb-bundle` (di repo web, `backend/cmd/duckdb-bundle`) dijalankan per-OS karena folder hasilnya
+      per-platform. Untuk langkah macOS, build wajib menyetel `CGO_LDFLAGS="-mmacosx-version-min=14.0"` dan
+      mengassert `otool -l` mengeluarkan `minos 14.0` — tanpa pin, angka itu ikut SDK runner dan biner dari
+      runner macOS 15 tidak akan jalan di Sonoma. Jangan pakai jumlah warning `built for newer` sebagai gerbang:
+      `go.o` bikinan toolchain ikut menghasilkan warning meskipun tidak ada yang salah
+      ([docs/engine-map.md](docs/engine-map.md) §13).
 - [x] Bukti negatif CGO — **bentuknya berubah dari asumsi checklist** (2026-11-01): di macOS
       `CGO_ENABLED=0 go build ./...` **gagal kompilasi** di `pkg/application` (`undefined: macosApp`,
       `newPlatformApp`), jadi aplikasi desktop tidak bisa menghasilkan artefak CGO-off yang "menolak start".
@@ -170,15 +175,24 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       yang benar — dengan ukuran RAM **sintetis**, karena gema satu-desimal DuckDB tidak bisa dibalik persis
       pada RAM ganjil. Yang masih terbuka: angka ini **belum dipasang** ke `NewQueryService` (makanannya
       pengaturan FR-15 di M4) dan `threads` masih 2.
-- [ ] **Deployment target macOS ditetapkan.** Link biner spike mengeluarkan 50 warning
-      `object file ... was built for newer 'macOS' version (14.0) than being linked (11.0)` — arsip statis
-      DuckDB memang di-compile untuk 14.0 (satu object 13.0). **Ditest 2026-11-01:
-      `MACOSX_DEPLOYMENT_TARGET=14.0` tidak berpengaruh** — warning sama banyaknya dan `otool -l` tetap
-      `minos 11.0` (sdk 14.4). Artinya biner hari ini mengklaim bisa jalan di Big Sur padahal berisi kode
-      yang di-compile untuk Sonoma; risikonya API yang tidak ada saat runtime, bukan sekadar bising di log.
-      Yang tersisa untuk diputuskan + dibuktikan: minimum OS produk, lalu `CGO_LDFLAGS=-mmacosx-version-min=<itu>`
-      (jalur yang belum dicoba) dan dicek `minos` berubah; kalau tidak bisa disamakan, produk secara sadar
-      diiklankan sebagai "butuh macOS ≥14" dan warning dibiarkan sebagai bukti bahwa asumsi linker Go salah.
+- [x] **Deployment target macOS ditetapkan: minimum macOS 14 (Sonoma), dipin lewat `CGO_LDFLAGS`**
+      (2026-11-01, bukti di [docs/engine-map.md](docs/engine-map.md) §13). Link biner app mengeluarkan 50
+      warning `object file ... was built for newer 'macOS' version (14.0) than being linked (11.0)` dan
+      `otool -l` menulis `minos 11.0` — sumbernya **Wails**, bukan linker Go:
+      `pkg/application/application_darwin.go:8` (v3.0.0) membawa `#cgo LDFLAGS: … -mmacosx-version-min=10.13`
+      dan ld64 menjepitnya ke 11.0 karena itu lantai arm64. **Catatan koreksi:** klaim "`MACOSX_DEPLOYMENT_TARGET`
+      tidak berpengaruh" yang ditulis lebih awal hari ini adalah false negative — nilainya (`14.0`) sama dengan
+      default SDK mesin, jadi tidak ada yang berubah. Env var itu memang hanya *default* dan kalah oleh flag
+      eksplisit; diuji lagi dengan `11.0` pada build non-Wails, `minos` turun dan warning muncul 43 kali.
+      Yang terbukti jalan: `CGO_LDFLAGS="-mmacosx-version-min=14.0"` mengalahkan direktif Wails — dilihat dari
+      hasil link-nya (`minos 14.0`, **nol warning**), dan direproduksi tanpa Wails lewat satu paket berisi
+      `#cgo LDFLAGS: -mmacosx-version-min=10.13` yang berubah dari `minos 11.0` menjadi `14.0` begitu flag
+      environment dipasang. Angka 14 dipilih karena ia target terendah yang link bersih
+      (13.0 → 49 warning, 11.0 → 50); Wails mendukung 12.0 tapi itu di bawah lantai
+      kode engine, dan tidak ada mesin 12/13 di sini untuk membuktikannya. Konsekuensi yang harus ikut ke CI:
+      build tanpa pin **tidak bisa direproduksi** (`minos` mengikuti SDK runner, jadi runner macOS 15 akan
+      menerbitkan biner yang menolak jalan di Sonoma) — langkah macos wajib menyetel pin dan men-assert
+      `otool -l` terhadap angka yang diiklankan.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
       query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
       dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas
