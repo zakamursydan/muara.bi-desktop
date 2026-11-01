@@ -267,3 +267,40 @@ Tiga keputusan yang perlu dicatat karena akan ditanya lagi:
   harus ada di bundel — kalau tidak, yang gagal adalah bukti bahwa engine sampai ke UI, bukan sekadar
   aset yang hilang.
 
+## 11. Profil memori: dari RAM mesin sampai `SET max_memory` (2026-11-01)
+
+Yang dimiliki engine cuma dua hal: `GuardrailConfig.MaxMemory` (string) dan `NormalizeMaxMemory` yang
+menolak string di luar grammar-nya. Sisanya — "RAM mesin ini berapa" — adalah milik desktop, dan itu
+sekarang paket sendiri: `internal/meminfo`, sengaja **tanpa CGO dan tanpa engine** supaya CI bisa
+mengompilasi silangnya di tiga OS.
+
+| OS | Cara baca | Kenapa bukan yang lain |
+|---|---|---|
+| darwin | `unix.SysctlUint64("hw.memsize")` | satu syscall; bukan "memory available" yang berubah-ubah |
+| linux | baris `MemTotal:` di `/proc/meminfo`, × 1024 | `sysconf(_SC_PHYS_PAGES)` butuh CGO/inline asm; `/proc` bisa dibaca build CGO=0 |
+| windows | `kernel32!GlobalMemoryStatusEx` lewat `syscall.NewLazyDLL` | x/sys **tidak** mengekspor proc ini; `wmic` deprecated & dibuang di build 11, WMI service bisa mati |
+
+`Budget(total)` menerapkan `min(4GiB, RAM/4)` dan punya tiga aturan yang masing-masing ada alasannya:
+
+- **bulat ke bawah, ke kelipatan MiB** — `max_memory` itu plafon, bukan alokasi; kurang sedikit berarti spill
+  lebih awal, bukan hasil yang terpotong.
+- **dijepit 256 MiB … 4 GiB** — pembacaan aneh (VM 512 MB, mock di tes) tidak boleh pernah menghasilkan
+  `0`, yang ditolak DuckDB. Ini juga menutup celah di sisi engine: `maxMemoryPattern` menerima `0GiB`
+  karena hanya melihat bentuk, jadi yang menjamin nilai > 0 untuk sementara adalah produk.
+- **GiB kalau utuh, MiB kalau tidak** — string harus lolos `NormalizeMaxMemory` dan satuannya harus sama
+  dengan label slider FR-15; `1536MiB` dikirim apa adanya dan DuckDB menyimpannya persis 1610612736 byte.
+
+Rantainya diuji dua lapis: `Budget()` diuji sebagai fungsi murni (10 kasus, termasuk cap 64 GiB → `4GiB`
+dan floor 512 MiB → `256MiB`) dan setiap keluarannya langsung dicek lolos `duckdb.NormalizeMaxMemory` —
+kalau grammar engine berubah, tes desktop ini yang gagal lebih dulu. `TestRAMBudgetReachesDuckDB`
+(cgo, paket root) membuktikan sisi berikutnya dengan **membandingkan byte**, bukan string: ukuran RAM
+sintetis → string → `SET` → `current_setting('max_memory')`. Ukuran tidak diambil dari mesin tes karena
+DuckDB menggemakan GiB dengan satu desimal — di mesin 7 GiB, `1792MiB` kembali sebagai "1.7 GiB" dan tidak
+bisa dibalik persis, jadi assert terhadap RAM asli akan membuat CI merah tanpa ada yang rusak.
+
+Angka mesin ini: `hw.memsize` = **8589934592** (8 GiB) → `Budget` = **`2GiB`** = sama dengan
+`duckdb.DefaultMaxMemory`. Coincidensi ini sengaja dipertahankan di spike: `NewQueryService` **tidak**
+mengisi `MaxMemory`, sehingga `Status()` terus membuktikan default engine bekerja tanpa konfigurasi, dan
+pemasangan `meminfo.Budget` baru terjadi bersama UI pengaturan (FR-15, M4).
+
+

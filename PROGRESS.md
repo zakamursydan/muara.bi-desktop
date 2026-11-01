@@ -155,7 +155,37 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
      dicoba dan jadi pekerjaan CI: `CGO_LDFLAGS="-mmacosx-version-min=14.0"` (Go mengabaikan env var
      standar itu untuk own linker-nya). Keputusan minimum OS produk harus ditetapkan **sebelum** installer
      pertama, bukan dibiarkan jadi kebetulan.
+- **RAM per OS terbaca, dan default `min(4GiB, RAM/4)` lahir dari angka mesin nyata (2026-11-01, M0
+  butir "cara membaca RAM total"):** paket baru `internal/meminfo` — satu fungsi `Total()` dengan tiga
+  implementasi per-OS (`meminfo_darwin.go`: `unix.SysctlUint64("hw.memsize")`; `meminfo_linux.go`: baris
+  `MemTotal` dari `/proc/meminfo` dikali 1024; `meminfo_windows.go`: `kernel32!GlobalMemoryStatusEx`), plus
+  `Budget(total)` yang memotong ke `min(4GiB, RAM/4)`, membulatkan **ke bawah** ke kelipatan MiB, dan tidak
+  pernah keluar dari rentang 256 MiB–4 GiB.
+  **Jawaban Windows yang tidak diharapkan:** `golang.org/x/sys/windows` **tidak** mengekspor
+  `GlobalMemoryStatusEx` (digrep di `x/sys@v0.49.0`: nol hasil), sementara alternatifnya rapuh — `wmic`
+  deprecated dan sudah dihapus di build Windows 11 terbaru, WMI adalah service yang bisa mati di mesin
+  tempat produk ini justru harus dipasang. Yang jalan: `syscall.NewLazyDLL("kernel32.dll")` + struct
+  `MEMORYSTATUSEX` deklarsi sendiri (72 byte, dua `uint32` dulu supaya `uint64` jatuh di offset 8 sama
+  seperti layout C). Tanpa CGO, tanpa dependensi baru, tanpa hak admin.
+  `golang.org/x/sys v0.49.0` **sudah ada di graph** sebagai indirect (dibawa Wails) — `go mod tidy` hanya
+  memindahkannya ke baris require langsung, jadi tidak ada modul baru yang diunduh.
+  Terukur: `CGO_ENABLED=0 GOOS/GOARCH ∈ {darwin,linux,windows}×{amd64,arm64} go build ./internal/meminfo`
+  **enam-enamnya ok**, dan `go vet` per-GOOS (darwin/linux/windows) bersih — artinya CI bisa membuktikan
+  "kode pembaca RAM tersusun di ketiga OS" dari satu mesin, jauh sebelum pertanyaan runtime Windows dijawab.
+  Mesin ini: `hw.memsize` = **8589934592 byte** (8 GiB, sama dengan angka `sysctl`), jadi
+  `Budget()` = **`2GiB`** — kebetulan identik dengan default engine, dan itu sengaja ditegaskan lewat tes.
+  `TestRAMBudgetReachesDuckDB` (`memory_budget_test.go`) mengunci rantai sisanya: `NewEngine` dengan string
+  hasil `Budget()` → `current_setting('max_memory')` dibaca → **dibandingkan dalam byte**. Tiga kasus
+  (8 GiB→`2GiB`→2³¹, 6 GiB→`1536MiB`→1610612736, 1 GiB→`256MiB`→268435456) lulus. Ukuran RAM-nya
+  **sintetis, bukan dari mesin tes**, karena DuckDB menggemakan nilai dalam GiB dengan satu desimal: pada
+  mesin ber-RAM ganjil (mis. 7 GiB → 1792 MiB → dikembalikan sebagai "1.7 GiB") gema itu tidak bisa dibalik
+  persis, jadi assert terhadap RAM asli akan membuat CI gagal tanpa ada yang salah. `go test ./...` hijau
+  dua paket.
+  Yang **belum** dikerjakan: memasang angka ini ke `NewQueryService` (sengaja masih kosong supaya spike terus
+  membuktikan default engine — pemasangan adalah pekerjaan pengaturan FR-15 di M4), dan `threads` yang masih
+  hardcoded 2.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
+
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
     yang sama tidak perlu digandakan per klien). Connection/alias/semantic model tetap berlaku satu berkas.
@@ -245,11 +275,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
    sampai ke DuckDB, CGO-off menolak dengan jelas, dan bundle sekarang benar-benar offline.
    **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB)
    dan **React/Vite sudah menggantikannya sebagai UI** (`frontend/dist` ter-embed, dibuktikan tes).
-   Yang belum: **cara membaca RAM total per
-   OS** (dibutuhkan default `min(4GiB, RAM/4)`); bundel extension + verifikasi dengan jaringan
+   Yang belum: pemasangan `meminfo.Budget` ke `NewQueryService` (butuh UI pengaturan FR-15, M4);
+   bundel extension + verifikasi dengan jaringan
    **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; **minimum macOS yang benar** (`CGO_LDFLAGS`
    belum dicoba — lihat temuan 4 di §3); dan apakah `threads` perlu ikut profil —
    sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
+   Sudah terjawab 2026-11-01: **cara membaca RAM total per OS** (`internal/meminfo`, tiga OS enam GOARCH
+   ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`).
    Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
    `CGO_ENABLED=1 MUARA_SPIKE_PG_DSN="…" go run .` — klik "Attach Postgres sample" → "Jalankan query".
    Kalau `go build` gagal dengan `pattern all:frontend/dist: no matching files found`, itu artinya langkah

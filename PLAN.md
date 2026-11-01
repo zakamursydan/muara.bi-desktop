@@ -146,10 +146,25 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       built without CGO…` (exit 1). Konsekuensinya untuk CI: **jangan** pakai `CGO_ENABLED=0` sebagai
       matriks build desktop; cukup pastikan build CGO=1 hijau dan `go test ./...` (engine) juga menguji
       pesan `ErrCGODisabled` untuk web.
-- [ ] **Cara membaca RAM total di Windows/macOS/Linux.** Jawabannya dibutuhkan untuk default
-      `max_memory` = `min(4GiB, RAM/4)` (BRD §15 butir 6); selama belum ada, fallback `2GiB`. Jangan
-      menambah dependensi (mis. gopsutil) sebelum terbukti bacaan per-OS yang polos tidak cukup — ini
-      satu-satunya alasan butir ikut M0, bukan M6.
+- [x] **Cara membaca RAM total di Windows/macOS/Linux (2026-11-01):** `internal/meminfo` —
+      darwin `unix.SysctlUint64("hw.memsize")`, linux `MemTotal` dari `/proc/meminfo` (×1024),
+      windows `kernel32!GlobalMemoryStatusEx`. **Tanpa gopsutil, sesuai larangan butir ini**: satu-satunya
+      modul yang dipakai `golang.org/x/sys v0.49.0`, yang **sudah ada di graph** sebagai indirect bawaan
+      Wails — `go mod tidy` hanya memindahkannya ke require langsung. Kejutan Windows: x/sys **tidak**
+      mengekspor `GlobalMemoryStatusEx`, dan `wmic`/WMI bukan alternatif yang layak (deprecated, dibuang di
+      build 11 terbaru, service bisa mati saat installer justru perlu RAM) — jadi proc-nya dipanggil lewat
+      `syscall.NewLazyDLL` dengan struct `MEMORYSTATUSEX` dideklasi sendiri. Paket ini **tidak butuh CGO**:
+      `CGO_ENABLED=0 go build` hijau untuk darwin/linux/windows × amd64/arm64 (enam kombinasi) dan `go vet`
+      per-GOOS bersih, sehingga "tersusun di ketiga OS" bisa dijaga CI dari satu mesin.
+      `Budget()` = `min(4GiB, RAM/4)`, **dibulatkan ke bawah** ke kelipatan MiB (plafon bukan alokasi —
+      kurang sedikit hanya berarti spill lebih awal, tidak memotong hasil), dijepit 256 MiB–4 GiB supaya
+      pembacaan aneh tidak pernah menghasilkan `0` yang ditolak DuckDB, dan ditulis dalam GiB kalau utuh
+      supaya string-nya lolos `NormalizeMaxMemory` dan satuannya sama dengan label slider FR-15.
+      Terukur di mesin ini: 8589934592 byte → `2GiB` (identik dengan default engine, dan itu kebetulan yang
+      menguntungkan, bukan asumsi). `TestRAMBudgetReachesDuckDB` membuktikan string-nya sampai sebagai byte
+      yang benar — dengan ukuran RAM **sintetis**, karena gema satu-desimal DuckDB tidak bisa dibalik persis
+      pada RAM ganjil. Yang masih terbuka: angka ini **belum dipasang** ke `NewQueryService` (makanannya
+      pengaturan FR-15 di M4) dan `threads` masih 2.
 - [ ] **Deployment target macOS ditetapkan.** Link biner spike mengeluarkan 50 warning
       `object file ... was built for newer 'macOS' version (14.0) than being linked (11.0)` — arsip statis
       DuckDB memang di-compile untuk 14.0 (satu object 13.0). **Ditest 2026-11-01:
