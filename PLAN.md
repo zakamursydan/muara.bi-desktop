@@ -185,6 +185,15 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
 
 ## M2 · Bersihkan blocker data (di engine, dipakai dua produk)
 
+- [ ] **`NormalizeMaxMemory` menerima `0GiB`.** `maxMemoryPattern` hanya melihat bentuk
+      (`^\d+(\.\d+)?(unit)$`), bukan nilai, jadi nol lolos validasi startup — padahal kontrak M1.5 justru
+      "config salah gagal di startup". Belum di-probe apa yang DuckDB lakukan dengan `0GiB` (yang sudah
+      tahu: angka polos ditolak, `-1` diterima sebagai unlimited), jadi yang dipastikan di sini adalah
+      engine tidak menolak, bukan bahwa DuckDB menolak. Desktop tidak pernah mengirimnya (`meminfo.Budget`
+      dijepit ≥256 MiB), tapi web membacanya mentah dari `DUCKDB_MAX_MEMORY`. Perbaikannya satu cek
+      angka-nol + tes; kerjakan di engine supaya dua produk ikut aman.
+
+
 - [ ] `SyncSchema` lintas driver (`connection_service.go:321,367` saat ini hanya Postgres dan diam).
 - [ ] Skema terkualifikasi penuh: `alias.schema.tabel`, PK/FK, nullability, komentar tabel/kolom,
       jumlah baris — mengganti `map[string][]ColumnDef` (`:344-348`). Ini prasyarat FR-2, FR-5, FR-10.
