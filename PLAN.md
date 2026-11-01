@@ -118,8 +118,9 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
 - [x] Skeleton Wails v3 terpasang, **versi dikunci `v3.0.0`** (bukan `v3.1.0-nightly.*` yang juga ada di
       proxy), `LICENSE` dibaca dari modul hasil `go get` di tag itu: **MIT (c) 2018-Present Lea Anthony**.
       CLI `wails3` ikut dikunci di `.tools/bin` (gitignored) supaya versinya mengikat pada repo.
-- [ ] **React/Vite** di atas skeleton itu. Tertahan alat, bukan desain: mesin ini tidak punya `npm`
-      (lihat PROGRESS §5) dan disk 98% penuh — butuh keputusan user sebelum menginstal Node.
+- [ ] **React/Vite** di atas skeleton itu. Alat sudah ada (Node 24.22.0 + npm 11.19.1 milik GoLand, di
+      luar PATH — lihat PROGRESS §5); yang menahan adalah **disk 2,1 GiB sisa (99% penuh)**, karena
+      `npm install` react+vite ±200 MB. Butuh keputusan pembersihan ruang dari user sebelum dijalankan.
 - [ ] Satu binding memanggil engine dan `SELECT` nyata dari Postgres tampil di grid — **di Windows**.
 - [ ] Tiga pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi:
   - [ ] go-duckdb v1.8.5 menyediakan `libduckdb.a` untuk windows/amd64? ABI-nya cocok dengan mingw-w64?

@@ -109,10 +109,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
      `row_count`/`duration_ms`/`truncated_by`/`row_limit` (snake_case dari tag Go) sementara struct desktop
      sendiri `duckdbVersion`/`maxMemory` (camelCase). Kontrak UI §12 harus menulis nama field per sumber,
      bukan berharap satu gaya.
-  3. **`npm` tidak ada di mesin ini** (tidak ada node/nvm/volta/mise; yang ada hanya Electron-as-Node
-     milik Qoder) sementara disk **98% penuh (±5 GiB sisa)**. React/Vite butuh Node ±100 MB +
-     `node_modules` ±250 MB, jadi butir itu ditahan dan butuh keputusan user — bukan sesuatu yang boleh
-     diam-diam memakan ruang yang dipakai stack Docker milik user.
+  3. **React/Vite tertahan ruang, bukan alat.** Node sendiri **ada** — milik GoLand, di
+     `/Users/macbookpro/Library/Application Support/JetBrains/GoLand2025.2/node/versions/24.22.0/bin`
+     (`node v24.22.0`, `npm 11.19.1`; `npm` hanya jalan kalau folder itu masuk `PATH` karena shebang-nya
+     `#!/usr/bin/env node`). Yang menahan adalah disk: **2,1 GiB sisa dari 228 GB (99%)** pada 2026-11-01,
+     sementara `npm install` react+vite ±200 MB dan build-nya butuh ruang lagi. Yang bisa dibersihkan
+     (keputusan user, bukan tindakan diam-diam): `go clean -cache` ±3,1 GB, cache modul Go ±4,6 GB
+     (naik ±1,4 GB hari ini karena pin Wails), `Docker.raw` ±15 GB, `frontend/node_modules` web ±747 MB.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -202,7 +205,7 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
    `replace muara.bi/engine => ../muara.bi-service/backend/engine` (bukan salinan), default memorinya
    sampai ke DuckDB, CGO-off menolak dengan jelas, dan bundle sekarang benar-benar offline.
    **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB).
-   Yang belum: **React/Vite** (tertahan keputusan instalasi Node — lihat §5), **cara membaca RAM total per
+   Yang belum: **React/Vite** (tertahan keputusan pembersihan disk — lihat §5), **cara membaca RAM total per
    OS** (dibutuhkan default `min(4GiB, RAM/4)`); bundel extension + verifikasi dengan jaringan
    **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; dan apakah `threads` perlu ikut profil —
    sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
@@ -229,6 +232,16 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   membawa npm. Egress sendiri sehat (`registry.npmjs.org` 200). Karena itu React/Vite ditahan: dipasang
   Node = ±100 MB, `node_modules` = ±250 MB, sedang disk tinggal **±5 GiB dari 228 GB (98% penuh)** dan
   dipakai bersama stack Docker user. Butuh keputusan user sebelum berjalan sendiri.
+- **Node ada, tapi di luar PATH** (2026-11-01): milik GoLand di
+  `/Users/macbookpro/Library/Application Support/JetBrains/GoLand2025.2/node/versions/24.22.0/bin` →
+  `node v24.22.0`, `npm 11.19.1`. Tidak ada nvm/volta/mise/homebrew node, dan `npm -v` gagal dengan
+  `env: node: No such file or directory` selama folder itu belum di-`export PATH`. Egress sehat
+  (`registry.npmjs.org` 200; `vite` 8.3.5, `react` 19.3.1, `@vitejs/plugin-react` 6.1.2, dan vite 8 minta
+  Node `^20.19 || >=22.12` — yang tersedia memenuhi).
+- **Ruang disk adalah batasan aktif M0 (2,1 GiB sisa, 99% penuh).** Jangan menjalankan `npm install`,
+  `docker build`, atau `go clean -cache` di mesin ini tanpa persetujuan user: yang pertama bisa gagal di
+  tengah jalan, yang kedua memengaruhi stack yang sedang jalan, yang ketiga membebaskan ±3,1 GB tapi
+  memperlambat build user berikutnya.
 - Skeleton Wails dibangun tanpa npm: `wails3 generate bindings` adalah tool Go, dan `assets/` serving
   HTML polos cukup untuk membuktikan binding memanggil engine. Untuk menjalankan ulang setelah mengubah
   method service: `.tools/bin/wails3 generate bindings -d assets/bindings` (butuh `CGO_ENABLED=1`).
