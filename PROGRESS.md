@@ -26,7 +26,8 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   `muara.bi/engine`)**, **M1.4 (kontrak `QueryResult.truncated`)** dan **M1.5 (`max_memory` jadi
   konfigurasi)** tuntas, dan exit criterion terakhir dibuktikan `make image-core` — image web benar-benar
   dibangun dari engine di `muara.bi-service/backend/engine/` (lewat `replace`), bukan dari salinan kedua.
-  Belum ada skeleton Wails; **spike M0 sudah dimulai 2026-11-01** dengan modul Go pertama di repo ini.
+  Spike M0 berjalan **2026-11-01**: modul Go pertama di repo ini, skeleton Wails v3.0.0 berdiri, dan
+  **React/Vite sudah jadi UI-nya** (binding memanggil engine, `frontend/dist` ter-embed di biner).
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -92,14 +93,40 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   yang diminta butir checklist. CLI-nya `go install` ke `.tools/bin/wails3` (gitignored, jadi versi tool
   mengikat pada repo, bukan pada PATH mesin). Bentuknya: `main.go` (aplikasi + guard mesin),
   `query_service.go` (satu-satunya jembatan webview→engine: `Status`/`AttachSample`/`Run`/`Close`),
-  `assets/index.html` (HTML polos + binding hasil `wails3 generate bindings`, belum React/Vite).
+  `assets/index.html` (HTML polos + binding hasil `wails3 generate bindings`) — bentuk pertama yang
+  membuktikan binding memanggil engine, **sudah digantikan React/Vite dan dihapus** lihat bullet berikutnya.
   Terukur: `go build` CGO=1 menghasilkan binary 64 MB berisi DuckDB + Wails sekaligus; `go test` lulus —
   `Status()` membalas `max_memory = 2.0 GiB` dan `threads = 2`, `Run()` mempertahankan kontrak M1.4
   (`range(20000)` dengan cap 10000 → `truncated=true`, `truncated_by=row_limit`), dan `DROP TABLE` ditolak
   `ErrForbiddenStatement` **di jembatan**, bukan di UI. Dijalankan 10 dtk: proses hidup dan AssetServer
   melayani `/` lalu `bindings/muara.bi/desktop/{index,queryservice,models}.js` — halaman benar-benar dimuat
   dan binding-nya ter-resolve. Konfirmasi visual (angka muncul di jendela) masih milik user.
-- **Tiga temuan yang mengubah rencana M0 (2026-11-01):**
+- **React/Vite berdiri di atas skeleton (2026-11-01, M0 butir ke-3 tertutup):** `frontend/` sekarang jadi
+  satu-satunya UI — `vite 8.3.5` + `react 19.3.1` (versi dikunci di `package.json`), `index.html` +
+  `src/{main,App}.jsx` + `src/styles.css` (token warna §12.2 disalin apa adanya dari
+  [docs/wireframe.html](docs/wireframe.html), termasuk `prefers-color-scheme: dark`). UI memanggil binding
+  hasil `wails3 generate bindings -d frontend/bindings`, jadi tidak ada satu pun jalur HTTP baru.
+  Estimasi ruang sebelumnya salah besar: `npm install` react+vite **+plugin** ternyata hanya
+  **39 MB** (bukan ±200 MB) dan `@wailsio/runtime 3.0.0` **2 paket, 276 KB** — seluruh M0-c selesai dengan
+  ruang yang sudah ada, jadi tidak ada cache yang dihapus. Yang diperlukan supaya build jalan: runtime itu
+  jadi **dependensi npm**, karena binding yang di-generate meng-import `@wailsio/runtime`
+  (`Call`/`CancellablePromise`/`Create`) — tanpa paket itu `vite build` gagal di
+  `Rolldown failed to resolve import "@wailsio/runtime"`. Alternatif `wails3 generate bindings -b`
+  (runtime dari AssetServer, bukan npm) sengaja tidak dipakai: bundel JS-nya membuat halaman **tidak**
+  bergantung pada `/wails/runtime.js`, sehingga UI tetap utuh kalau Wails mengubah rute internalnya.
+  Terukur: `npm run build` → 48 modul, `dist/assets/index-*.js` **247,72 kB** (gzip 78,17 kB) — runtime +
+  binding ter-bundle ke dalamnya, artinya tidak ada satu pun unduhan saat aplikasi jalan.
+  `main.go` sekarang `//go:embed all:frontend/dist` + `BundledAssetFileServer`, dan HTML polos
+  `assets/` **dihapus** (`git rm -r`) supaya cuma ada satu UI. Buktinya jadi tes, bukan run manual:
+  `TestEmbeddedViteBuildIsServed` (`embed_assets_test.go`) menyajikan embed lewat handler Wails di
+  `httptest`, menuntut `/` memuat `id="root"`, menuntut **setiap** `src`/`href` `/assets/*` di halaman ikut
+  ter-embed (kalau Vite mulai menghasilkan fail yang tidak ada di tree embed, tes ini yang berteriak),
+  menolak halaman yang masih mengandalkan `/wails/runtime.js`, dan menuntut string `duckdbVersion` ada di
+  bundel JS — bukti
+  JSON tag engine (§9) menyeberang sampai artefak final. `go test ./...` hijau 4/4.
+  Konsekuensi build yang harus ditulis di CI: **`npm run build` sebelum `go build`**, karena `frontend/dist`
+  di-gitignore dan `go:embed` gagal dengan `no matching files found` kalau tree-nya belum ada.
+- **Empat temuan yang mengubah rencana M0 (2026-11-01):**
   1. **CGO-off tidak bisa dibangun di macOS sama sekali** — `CGO_ENABLED=0 go build ./...` gagal di paket
      `pkg/application` (`undefined: macosApp`, `newPlatformApp`, `mac.GetBundleID`). Butir "matikan CGO →
      aplikasi menolak start dengan pesan jelas" karena itu **bukan** tes runtime desktop: gerbangnya pindah
@@ -109,13 +136,25 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
      `row_count`/`duration_ms`/`truncated_by`/`row_limit` (snake_case dari tag Go) sementara struct desktop
      sendiri `duckdbVersion`/`maxMemory` (camelCase). Kontrak UI §12 harus menulis nama field per sumber,
      bukan berharap satu gaya.
-  3. **React/Vite tertahan ruang, bukan alat.** Node sendiri **ada** — milik GoLand, di
+  3. **React/Vite tertahan ruang, bukan alat — dan estimasi ruangnya yang salah, bukan ruangnya.** Node
+     sendiri **ada** — milik GoLand, di
      `/Users/macbookpro/Library/Application Support/JetBrains/GoLand2025.2/node/versions/24.22.0/bin`
      (`node v24.22.0`, `npm 11.19.1`; `npm` hanya jalan kalau folder itu masuk `PATH` karena shebang-nya
-     `#!/usr/bin/env node`). Yang menahan adalah disk: **2,1 GiB sisa dari 228 GB (99%)** pada 2026-11-01,
-     sementara `npm install` react+vite ±200 MB dan build-nya butuh ruang lagi. Yang bisa dibersihkan
-     (keputusan user, bukan tindakan diam-diam): `go clean -cache` ±3,1 GB, cache modul Go ±4,6 GB
-     (naik ±1,4 GB hari ini karena pin Wails), `Docker.raw` ±15 GB, `frontend/node_modules` web ±747 MB.
+     `#!/usr/bin/env node`). Angka "±200 MB" yang menahan butir ini sepanjang hari ternyata **39 MB**
+     (terukur, dan `@wailsio/runtime` hanya menambah 2 paket). Pelajarannya dicatat supaya tidak diulang:
+     jangan menahan milestone di atas estimasi ukuran — ukur dulu, `npm install` murah.
+     Yang masih bisa dibersihkan (keputusan user, bukan tindakan diam-diam): `go clean -cache` ±3,1 GB,
+     cache modul Go ±4,6 GB (naik ±1,4 GB hari ini karena pin Wails), `Docker.raw` ±15 GB,
+     `frontend/node_modules` web ±747 MB.
+  4. **`MACOSX_DEPLOYMENT_TARGET` tidak mengubah apa pun pada link Go + CGO ini.** Ditest 2026-11-01:
+     build biasa mengeluarkan 50 warning `was built for newer 'macOS' version … than being linked (11.0)`
+     (49 object pada 14.0, 1 pada 13.0 — arsip statis DuckDB), dan build ulang dengan
+     `MACOSX_DEPLOYMENT_TARGET=14.0` menghasilkan **warning yang sama banyaknya** sementara
+     `otool -l` tetap `LC_BUILD_VERSION … minos 11.0` (sdk 14.4). Jadi biner hari ini **berklaim** jalan di
+     Big Sur padahal berisi kode yang di-compile untuk Sonoma; itu bukan sekadar warning kosmetik. Yang belum
+     dicoba dan jadi pekerjaan CI: `CGO_LDFLAGS="-mmacosx-version-min=14.0"` (Go mengabaikan env var
+     standar itu untuk own linker-nya). Keputusan minimum OS produk harus ditetapkan **sebelum** installer
+     pertama, bukan dibiarkan jadi kebetulan.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -204,13 +243,17 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 1. Lanjutkan spike **M0**. Yang sudah terbukti: modul desktop mengonsumsi engine lewat
    `replace muara.bi/engine => ../muara.bi-service/backend/engine` (bukan salinan), default memorinya
    sampai ke DuckDB, CGO-off menolak dengan jelas, dan bundle sekarang benar-benar offline.
-   **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB).
-   Yang belum: **React/Vite** (tertahan keputusan pembersihan disk — lihat §5), **cara membaca RAM total per
+   **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB)
+   dan **React/Vite sudah menggantikannya sebagai UI** (`frontend/dist` ter-embed, dibuktikan tes).
+   Yang belum: **cara membaca RAM total per
    OS** (dibutuhkan default `min(4GiB, RAM/4)`); bundel extension + verifikasi dengan jaringan
-   **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; dan apakah `threads` perlu ikut profil —
+   **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; **minimum macOS yang benar** (`CGO_LDFLAGS`
+   belum dicoba — lihat temuan 4 di §3); dan apakah `threads` perlu ikut profil —
    sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
-   Cek cepat oleh user: build `.` dengan `CGO_ENABLED=1` sambil `MUARA_SPIKE_PG_DSN` terisi, jalankan
-   binary-nya, lalu di jendela klik "Attach Postgres sample" → "Jalankan query".
+   Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
+   `CGO_ENABLED=1 MUARA_SPIKE_PG_DSN="…" go run .` — klik "Attach Postgres sample" → "Jalankan query".
+   Kalau `go build` gagal dengan `pattern all:frontend/dist: no matching files found`, itu artinya langkah
+   `npm run build` dilewat, bukan ada yang rusak di Go.
 2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
    sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
@@ -226,26 +269,38 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   meminta `go 1.27.1`) — artinya build di mesin ini butuh cache itu; offline tanpa cache build gagal
   dengan pesan "go.mod requires go >= 1.27.1". DuckDB linux/darwin sudah terverifikasi
   di produk web; **Windows belum pernah disentuh sama sekali** — M0 adalah pertama kalinya.
-- **Node/npm tidak ada di mesin ini (2026-11-01).** Tidak ada `node`, `npm`, nvm, volta, mise, maupun
-  homebrew node; satu-satunya runtime JS adalah Electron-as-Node milik Qoder
-  (`ELECTRON_RUN_AS_NODE=1 /Applications/Qoder.app/Contents/MacOS/Qoder` → v24.18.0) yang **tidak**
-  membawa npm. Egress sendiri sehat (`registry.npmjs.org` 200). Karena itu React/Vite ditahan: dipasang
-  Node = ±100 MB, `node_modules` = ±250 MB, sedang disk tinggal **±5 GiB dari 228 GB (98% penuh)** dan
-  dipakai bersama stack Docker user. Butuh keputusan user sebelum berjalan sendiri.
 - **Node ada, tapi di luar PATH** (2026-11-01): milik GoLand di
   `/Users/macbookpro/Library/Application Support/JetBrains/GoLand2025.2/node/versions/24.22.0/bin` →
   `node v24.22.0`, `npm 11.19.1`. Tidak ada nvm/volta/mise/homebrew node, dan `npm -v` gagal dengan
-  `env: node: No such file or directory` selama folder itu belum di-`export PATH`. Egress sehat
-  (`registry.npmjs.org` 200; `vite` 8.3.5, `react` 19.3.1, `@vitejs/plugin-react` 6.1.2, dan vite 8 minta
-  Node `^20.19 || >=22.12` — yang tersedia memenuhi).
-- **Ruang disk adalah batasan aktif M0 (2,1 GiB sisa, 99% penuh).** Jangan menjalankan `npm install`,
-  `docker build`, atau `go clean -cache` di mesin ini tanpa persetujuan user: yang pertama bisa gagal di
-  tengah jalan, yang kedua memengaruhi stack yang sedang jalan, yang ketiga membebaskan ±3,1 GB tapi
-  memperlambat build user berikutnya.
-- Skeleton Wails dibangun tanpa npm: `wails3 generate bindings` adalah tool Go, dan `assets/` serving
-  HTML polos cukup untuk membuktikan binding memanggil engine. Untuk menjalankan ulang setelah mengubah
-  method service: `.tools/bin/wails3 generate bindings -d assets/bindings` (butuh `CGO_ENABLED=1`).
-- Cara menjalankan spike: `CGO_ENABLED=1 go build -o /tmp/muara-spike ./cmd/spike` lalu
+  `env: node: No such file or directory` selama folder itu belum di-`export PATH` (shebang npm-nya
+  `#!/usr/bin/env node`). Bukan satu-satunya JS di mesin: Electron-as-Node milik Qoder
+  (`ELECTRON_RUN_AS_NODE=1 /Applications/Qoder.app/Contents/MacOS/Qoder` → v24.18.0) ada tapi **tidak**
+  membawa npm. Egress sehat (`registry.npmjs.org` 200; `vite` 8.3.5, `react` 19.3.1,
+  `@vitejs/plugin-react` 6.1.2, `@wailsio/runtime` 3.0.0, dan vite 8 minta Node `^20.19 || >=22.12` —
+  yang tersedia memenuhi). *Catatan koreksi: bullet versi sebelumnya mengklaim "Node/npm tidak ada di
+  mesin ini" dan sudah dihapus — salah, dan klaim itu yang menahan M0-c sehari penuh.*
+- **Ruang disk masih batasan, tapi bukan lagi alasan M0 tertahan.** Sisa **±1,9 GiB dari 228 GB (99%
+  penuh)** sebelum dan sesudah M0-c: seluruhnya (react+vite+plugin 39 MB, runtime 2 paket) muat tanpa
+  menghapus apa pun. Yang menahan pekerjaan berat tetap sama, dan tetap **keputusan user, bukan tindakan
+  diam-diam**: `go clean -cache` ±3,1 GB, cache modul Go ±4,6 GB, `Docker.raw` ±15 GB,
+  `frontend/node_modules` web ±747 MB. Catatan ukur: `go build`/`go test` yang me-link DuckDB membuat
+  sisa turun ke **820 MiB** sementara lalu kembali ke 1,9 GiB ketika file temp linker habis — jadi angka
+  `df` di tengah build bukan selalu ruang yang hilang permanen: selama build kedua sisa turun ke
+  **820 MiB**, lalu kembali ke 1,9 GiB setelah `bin/` (62 MiB) dihapus dan linker temp selesai — jadi angka
+  `df` saat build sedang jalan tidak bisa dibaca sebagai "ruang untuk keputusan besar".
+- Perintah build yang benar, dan urutannya wajib (dist di-gitignore, `go:embed` membutuhkannya lebih dulu):
+
+  ```sh
+  export PATH="/Users/macbookpro/Library/Application Support/JetBrains/GoLand2025.2/node/versions/24.22.0/bin:$PATH"
+  cd frontend && npm ci && npm run build && cd ..
+  CGO_ENABLED=1 go build -o bin/muara-spike .
+  ```
+
+  Untuk mengubah jembatan: tambah method **terekspor** di `query_service.go`, lalu
+  `.tools/bin/wails3 generate bindings -d frontend/bindings` (butuh `CGO_ENABLED=1`), baru `npm run build`
+  lagi — binding yang di-generate adalah sumber kebenaran nama field di JS.
+  `bin/` sudah di-gitignore; hapus setelah dipakai kalau ruang menipis.
+- Cara menjalankan CLI spike (bukan app): `CGO_ENABLED=1 go build -o /tmp/muara-spike ./cmd/spike` lalu
   `MUARA_SPIKE_PG_DSN="host=localhost port=5435 user=sample_user password=sample_password
   dbname=sample_ecommerce sslmode=disable" /tmp/muara-spike`. DSN **tidak** pernah di-hardcode di
   dalam kode — flag/env saja, supaya kredensial sample tidak ikut ter-commit. Fixture di stack user
@@ -259,4 +314,6 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 - Keputusan user 2026-10-30: **opsi A disetujui** — repo web boleh disentuh satu commit untuk
   `git mv` engine + ganti import path (M1.3).
 - Repo ini **belum ada remote**; commit lokal berisi dokumen plus kode pertama di repo (`cmd/spike/`,
-  `go.mod`, `go.sum`), lalu skeleton Wails (`main.go`, `query_service.go`, `assets/`).
+  `go.mod`, `go.sum`), lalu skeleton Wails (`main.go`, `query_service.go`), lalu UI React/Vite
+  (`frontend/` + `embed_assets_test.go`). `assets/` (HTML polos) sempat masuk `fb900dd` dan dihapus lagi
+  hari yang sama — satu UI saja, supaya tidak ada dua versi yang bisa saling tertukar saat dibaca.

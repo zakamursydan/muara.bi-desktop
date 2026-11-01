@@ -2,13 +2,26 @@ package main
 
 import (
 	"embed"
+	"io/fs"
 	"log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-//go:embed all:assets
-var assets embed.FS
+// The webview is served from the Vite build output, so `npm run build` in
+// frontend/ has to run before `go build` — the same order Wails itself expects.
+//
+//go:embed all:frontend/dist
+var bundles embed.FS
+
+func bundledAssets() fs.FS {
+	dist, err := fs.Sub(bundles, "frontend/dist")
+	if err != nil {
+		// Unreachable: the embed pattern guarantees the directory exists.
+		log.Fatalf("frontend/dist is not embedded: %v", err)
+	}
+	return dist
+}
 
 func main() {
 	// The engine refuses to build a session in a CGO-free binary, so the app
@@ -27,7 +40,7 @@ func main() {
 			application.NewService(service),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.BundledAssetFileServer(assets),
+			Handler: application.BundledAssetFileServer(bundledAssets()),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,

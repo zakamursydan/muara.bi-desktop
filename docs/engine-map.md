@@ -234,3 +234,36 @@ Tiga hal lain yang terbukti di jembatan ini:
 - Metode service yang **diekspor** otomatis jadi binding, termasuk `Close()`. Tidak berbahaya di spike
   (aset hanya lokal), tapi produk tidak boleh memberi webview tombol untuk mematikan session — nanti pakai
   `application.ServiceShutdown` (`ServiceShutdown() error`) atau nama yang tidak diekspor.
+
+## 10. Bundel UI akhir: apa yang benar-benar masuk biner (React/Vite, 2026-11-01)
+
+Rantai build-nya dua langkah dan urutannya wajib: `npm run build` → `frontend/dist`, baru
+`go build` yang meng-embed hasilnya (`//go:embed all:frontend/dist`). `frontend/dist` di-gitignore, jadi
+clone bersih tanpa langkah pertama gagal di `go:embed` dengan `pattern all:frontend/dist: no matching
+files found` — pesan itu milik tooling, bukan kerusakan engine.
+
+Terukur di mesin ini:
+
+| Artefak | Ukuran | Catatan |
+|---|---|---|
+| `dist/assets/index-*.js` | 247,72 kB (gzip 78,17 kB) | 48 modul: React 19.3.1 + `@wailsio/runtime` 3.0.0 + binding hasil generate |
+| `dist/assets/index-*.css` | 2,27 kB | token §12.2, termasuk dark mode |
+| `frontend/node_modules` | 39 MB + 2 paket runtime | estimasi awal "±200 MB" terlalu besar; jangan tahan milestone di atas angka yang belum diukur |
+| `bin/muara-spike` | 62 MiB (≈65 MB) | DuckDB + Wails + UI dalam satu file; angka "64 MB" di §3 PROGRESS adalah fail yang sama, satuannya beda |
+
+Tiga keputusan yang perlu dicatat karena akan ditanya lagi:
+
+- **Runtime Wails diambil dari npm, bukan dari flag `-b`.** Binding yang di-generate selalu
+  `import { Call, CancellablePromise, Create } from "@wailsio/runtime"`, dan Vite mem-bundle paket itu ke
+  dalam `index-*.js`. Alasannya bukan ukuran: dengan rute ini halaman **tidak** memanggil
+  `/wails/runtime.js`, jadi UI tidak ikut rusak kalau Wails mengubah rute internalnya di versi berikutnya.
+  `-b` tetap jalur yang sah kalau nanti kita ingin satu salinan runtime per versi Wails — tapi ia
+  mengikat bentuk halaman ke AssetServer.
+- **Versi `@wailsio/runtime` disamakan dengan versi Go module (`3.0.0`).** Dua sisi jembatan tidak boleh
+  punya versi sendiri; `package.json` dan `go.mod` harus naik bersama, dan itu tugas CI.
+- **Offline tetap offline.** Bundel JS berisi runtime-nya sendiri, tidak ada CDN, dan `go:embed` tidak
+  punya jalur jaringan. `TestEmbeddedViteBuildIsServed` menjaga ini dari sisi Go: setiap `src`/`href`
+  `/assets/*` yang ditulis halaman harus ada di tree embed, dan string `duckdbVersion` (JSON tag engine)
+  harus ada di bundel — kalau tidak, yang gagal adalah bukti bahwa engine sampai ke UI, bukan sekadar
+  aset yang hilang.
+

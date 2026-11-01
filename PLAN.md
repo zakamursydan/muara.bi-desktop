@@ -118,9 +118,14 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
 - [x] Skeleton Wails v3 terpasang, **versi dikunci `v3.0.0`** (bukan `v3.1.0-nightly.*` yang juga ada di
       proxy), `LICENSE` dibaca dari modul hasil `go get` di tag itu: **MIT (c) 2018-Present Lea Anthony**.
       CLI `wails3` ikut dikunci di `.tools/bin` (gitignored) supaya versinya mengikat pada repo.
-- [ ] **React/Vite** di atas skeleton itu. Alat sudah ada (Node 24.22.0 + npm 11.19.1 milik GoLand, di
-      luar PATH — lihat PROGRESS §5); yang menahan adalah **disk 2,1 GiB sisa (99% penuh)**, karena
-      `npm install` react+vite ±200 MB. Butuh keputusan pembersihan ruang dari user sebelum dijalankan.
+- [x] **React/Vite** di atas skeleton itu (2026-11-01): `frontend/` = vite 8.3.5 + react 19.3.1, dikunci di
+      `package.json`; binding di-generate ke `frontend/bindings`, `main.go` meng-embed `frontend/dist`, dan
+      HTML polos `assets/` dihapus. Node **tidak** perlu dipasang — milik GoLand, di luar PATH
+      (`…/GoLand2025.2/node/versions/24.22.0/bin`, lihat PROGRESS §5). Estimasi "±200 MB" yang menahan butir
+      ini ternyata **39 MB**; `@wailsio/runtime 3.0.0` (dikunci = versi module Go, di-bundle ke dalam
+      `index-*.js` 247 kB sehingga halaman tidak bergantung `/wails/runtime.js`) menambah 2 paket. Buktinya
+      tes, bukan run manual: `TestEmbeddedViteBuildIsServed`. Urutan build untuk CI: **`npm run build`
+      sebelum `go build`** (dist di-gitignore → `go:embed` gagal tanpa itu).
 - [ ] Satu binding memanggil engine dan `SELECT` nyata dari Postgres tampil di grid — **di Windows**.
 - [ ] Tiga pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi:
   - [ ] go-duckdb v1.8.5 menyediakan `libduckdb.a` untuk windows/amd64? ABI-nya cocok dengan mingw-w64?
@@ -145,11 +150,15 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       `max_memory` = `min(4GiB, RAM/4)` (BRD §15 butir 6); selama belum ada, fallback `2GiB`. Jangan
       menambah dependensi (mis. gopsutil) sebelum terbukti bacaan per-OS yang polos tidak cukup — ini
       satu-satunya alasan butir ikut M0, bukan M6.
-- [ ] **Deployment target macOS ditetapkan.** Link biner spike mengeluarkan warning
+- [ ] **Deployment target macOS ditetapkan.** Link biner spike mengeluarkan 50 warning
       `object file ... was built for newer 'macOS' version (14.0) than being linked (11.0)` — arsip statis
-      DuckDB memang di-compile untuk 14.0. Artinya binary hari ini hanya aman di ≥14.0 walaupun Go mengira
-      minimal 11.0. Putuskan minimum OS produk, lalu samakan `-mmacosx-version-min` di `CGO_CFLAGS`/
-      `CGO_LDFLAGS` supaya warning hilang dan batasnya jadi nyata, bukan kebetulan.
+      DuckDB memang di-compile untuk 14.0 (satu object 13.0). **Ditest 2026-11-01:
+      `MACOSX_DEPLOYMENT_TARGET=14.0` tidak berpengaruh** — warning sama banyaknya dan `otool -l` tetap
+      `minos 11.0` (sdk 14.4). Artinya biner hari ini mengklaim bisa jalan di Big Sur padahal berisi kode
+      yang di-compile untuk Sonoma; risikonya API yang tidak ada saat runtime, bukan sekadar bising di log.
+      Yang tersisa untuk diputuskan + dibuktikan: minimum OS produk, lalu `CGO_LDFLAGS=-mmacosx-version-min=<itu>`
+      (jalur yang belum dicoba) dan dicek `minos` berubah; kalau tidak bisa disamakan, produk secara sadar
+      diiklankan sebagai "butuh macOS ≥14" dan warning dibiarkan sebagai bukti bahwa asumsi linker Go salah.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
       query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
       dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas
