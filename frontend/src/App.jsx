@@ -5,6 +5,12 @@ const DEFAULT_SQL = `SELECT o.channel, COUNT(*) AS orders, SUM(o.total) AS reven
 FROM sample.public.orders AS o
 GROUP BY 1 ORDER BY revenue DESC`;
 
+// The SQLite fixture has no `public` schema, so the same catalogue name resolves
+// differently — the query follows whichever source was actually attached.
+const SQLITE_SQL = `SELECT o.channel, COUNT(*) AS orders, SUM(o.total) AS revenue
+FROM sample.orders AS o
+GROUP BY 1 ORDER BY revenue DESC`;
+
 const STAT_LABELS = [
   ["duckdbVersion", "DuckDB"],
   ["maxMemory", "max_memory"],
@@ -47,6 +53,21 @@ export default function App() {
     }
   }
 
+  async function attachSQLite() {
+    setBusy(true);
+    try {
+      await QueryService.AttachSampleSQLite();
+      // Only rewrites the editor if the user never touched it, so a hand-typed
+      // query is never thrown away by pressing a button.
+      if (sql === DEFAULT_SQL) setSql(SQLITE_SQL);
+      report("fixture sqlite ter-attach (READ_ONLY)");
+    } catch (err) {
+      report(err, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function run() {
     setBusy(true);
     try {
@@ -80,6 +101,9 @@ export default function App() {
         <div className="toolbar">
           <button onClick={attach} disabled={busy}>
             Attach Postgres sample
+          </button>
+          <button onClick={attachSQLite} disabled={busy}>
+            Attach SQLite fixture
           </button>
           <button className="ghost" onClick={run} disabled={busy}>
             Jalankan query

@@ -114,3 +114,54 @@ func TestExtensionDirEnvOverridesTheBundle(t *testing.T) {
 		t.Errorf("bundledExtensionDir() = %q, want the environment to win", got)
 	}
 }
+
+// SQLite is the one external source every platform can reach with no server, no
+// credentials and no network, so it carries the two claims the Postgres path
+// cannot make on a CI runner: a bundled connector LOADs through this bridge, and
+// the rows the grid renders are real.
+func TestSpikeSQLiteFixtureReachesTheGrid(t *testing.T) {
+	path, err := filepath.Abs(filepath.Join("tests", "fixtures", "spike.sqlite"))
+	if err != nil {
+		t.Fatalf("resolve fixture: %v", err)
+	}
+	t.Setenv(sqliteFileEnv, path)
+
+	service, err := NewQueryService()
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	defer service.Close()
+
+	if err := service.AttachSampleSQLite(); err != nil {
+		t.Fatalf("attach fixture: %v", err)
+	}
+	res, err := service.Run(`SELECT channel, COUNT(*) AS orders, SUM(total) AS revenue
+FROM sample.orders GROUP BY 1 ORDER BY revenue DESC`)
+	if err != nil {
+		t.Fatalf("query the fixture: %v", err)
+	}
+	if res.RowCount != 3 || res.Truncated {
+		t.Errorf("fixture aggregate = %d rows, truncated=%v, want 3 whole rows", res.RowCount, res.Truncated)
+	}
+	if got := asText(res.Rows[0]["channel"]); got != "wholesale" {
+		t.Errorf("top channel = %q, want wholesale (revenue 540)", got)
+	}
+	if len(res.Columns) != 3 {
+		t.Errorf("grid got %d columns, want 3", len(res.Columns))
+	}
+}
+
+// Both fixtures are named by the environment for the same reason the DSN is: the
+// webview must never be able to ask the app to open a path it was told to.
+func TestSpikeAttachSQLiteNeedsTheFixtureEnv(t *testing.T) {
+	t.Setenv(sqliteFileEnv, "")
+	service, err := NewQueryService()
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	defer service.Close()
+
+	if err := service.AttachSampleSQLite(); err == nil {
+		t.Fatal("attach succeeded without a fixture path")
+	}
+}

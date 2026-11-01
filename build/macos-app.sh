@@ -22,7 +22,7 @@ if [ ! -d frontend/dist ]; then
 fi
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/duckdb/extensions"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # The pin is not cosmetic: Wails' own cgo directive otherwise writes minos 11.0
 # while the DuckDB archive was compiled for 14.0 (docs/engine-map.md §13).
@@ -48,7 +48,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# An empty extensions folder would be worse than none: the resolver would point
+# DuckDB at it, the engine would then refuse to INSTALL, and the app would report
+# "extension unavailable" for a bundle that was simply never passed.
 if [ $# -ge 1 ] && [ -n "${1:-}" ]; then
+	if [ ! -d "$1" ]; then
+		echo "extension bundle '$1' does not exist" >&2
+		exit 1
+	fi
+	mkdir -p "$APP/Contents/Resources/duckdb/extensions"
 	cp -R "$1/." "$APP/Contents/Resources/duckdb/extensions/"
 fi
 
@@ -61,5 +69,10 @@ minos=$(otool -l "$APP/Contents/MacOS/$APP_NAME" | awk '/LC_BUILD_VERSION/{found
 [ "$minos" = "$MIN_MACOS" ] || { echo "linked minos is $minos, want $MIN_MACOS" >&2; exit 1; }
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
+ext_count=0
+if [ -d "$APP/Contents/Resources/duckdb/extensions" ]; then
+	ext_count=$(find "$APP/Contents/Resources/duckdb/extensions" -name '*.duckdb_extension' | wc -l | tr -d ' ')
+fi
+
 echo "built $APP"
-echo "  minos=$minos  extensions=$(find "$APP/Contents/Resources/duckdb/extensions" -name '*.duckdb_extension' | wc -l | tr -d ' ') berkas  signature=$(codesign -dv "$APP" 2>&1 | awk -F= '/^Signature=/{print $2}')"
+echo "  minos=$minos  extensions=$ext_count files  signature=$(codesign -dv "$APP" 2>&1 | awk -F= '/^Signature=/{print $2}')"

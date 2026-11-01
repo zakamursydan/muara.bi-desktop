@@ -1,0 +1,196 @@
+name: desktop
+
+# M0's exit criterion is "the same spike answers yes/no on three operating
+# systems", so this file is the instrument that answers the four Windows
+# questions and keeps the macOS invariants from quietly rotting.
+#
+# It has never run: this repository has no remote yet, and the engine arrives
+# from a sibling checkout, not a published module. Treat every step below as a
+# claim that the local machine has proven and the runner has not.
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # The floor the product advertises. It has to appear twice: as the linker pin
+  # (docs/engine-map.md §13) and as LSMinimumSystemVersion in the app bundle.
+  MIN_MACOS: "14.0"
+  ENGINE_REPO: "${{ github.repository_owner }}/muara.bi-service"
+
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-14 because the deployment target is 14: a runner on a newer
+          # SDK would still link, but the pin is what makes the artefact
+          # reproducible, and asserting it against the advertised floor is the
+          # point of the job.
+          - os: macos-14
+            bundle_dir: /tmp/muara-ext
+          - os: ubuntu-24.04
+            bundle_dir: /tmp/muara-ext
+          - os: windows-latest
+            bundle_dir: '${{ runner.temp }}\muara-ext'
+    runs-on: ${{ matrix.os }}
+    name: spike (${{ matrix.os }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: muara.bi-desktop
+
+      # go.mod resolves muara.bi/engine through
+      # `replace muara.bi/engine => ../muara.bi-service/backend/engine`, so the
+      # two repositories must sit next to each other with these exact folder
+      # names. Needs a PAT with read access to the engine repo: a job token
+      # cannot cross repositories.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ENGINE_REPO }}
+          token: ${{ secrets.ENGINE_REPO_TOKEN }}
+          path: muara.bi-service
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: muara.bi-desktop/go.mod
+          cache-dependency-path: |
+            muara.bi-desktop/go.sum
+            muara.bi-service/backend/engine/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install a GCC toolchain (Windows)
+        if: runner.os == 'Windows'
+        run: choco install --no-progress mingw
+        # go-duckdb's windows cgo flags are `--static -lstdc++`, which MSVC's
+        # link.exe does not understand: mingw-w64 is a requirement, not a
+        # preference (docs/engine-map.md §12).
+
+      - name: Build the UI before the Go binary
+        working-directory: muara.bi-desktop/frontend
+        run: |
+          npm ci
+          npm run build
+        # frontend/dist is gitignored and main.go embeds it, so `go build`
+        # fails with "no matching files found" without this order.
+
+      - name: Build the app binary (Linux, Windows)
+        if: runner.os != 'macOS'
+        working-directory: muara.bi-desktop
+        env:
+          CGO_ENABLED: "1"
+        run: go build -o bin/muara-bi${{ runner.os == 'Windows' && '.exe' || '' }} .
+        # On Windows this single step is question 1 of M0: if go-duckdb's static
+        # archive and the mingw ABI do not agree, the link fails here.
+
+      - name: Build the connector bundle for this platform
+        working-directory: muara.bi-service/backend
+        env:
+          CGO_ENABLED: "1"
+        run: go run ./cmd/duckdb-bundle -out "${{ matrix.bundle_dir }}"
+        # Per-OS on purpose: DuckDB looks the files up under
+        # <duckdb-version>/<platform>/, so a bundle built on one OS is dead
+        # weight on another.
+
+      - name: Assemble the macOS application bundle
+        if: runner.os == 'macOS'
+        working-directory: muara.bi-desktop
+        run: sh build/macos-app.sh "${{ matrix.bundle_dir }}"
+        # Runs after the bundle step on purpose: an app carrying an *empty*
+        # extensions folder is worse than one carrying none, because the engine
+        # then refuses to INSTALL and every connector reports "unavailable".
+        # The script pins CGO_LDFLAGS, writes LSMinimumSystemVersion, and aborts
+        # unless `otool -l` reports the advertised floor.
+
+      - name: Prove a bundled connector LOADs with no server and no network
+        working-directory: muara.bi-desktop
+        env:
+          CGO_ENABLED: "1"
+          DUCKDB_EXTENSION_DIRECTORY: ${{ matrix.bundle_dir }}
+          MUARA_SPIKE_SQLITE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.sqlite
+        run: go run ./cmd/spike -table orders
+        # SQLite is the fixture every platform can reach: no database server, no
+        # credentials, no connection to time out. It is what makes the Windows
+        # question ("can a statically linked binary LOAD an extension at all?")
+        # answerable on a runner that has no Postgres.
+
+      - name: Repeat the proof with the bundle read-only and an empty HOME
+        if: runner.os != 'Windows'
+        working-directory: muara.bi-desktop
+        env:
+          CGO_ENABLED: "1"
+          DUCKDB_EXTENSION_DIRECTORY: ${{ matrix.bundle_dir }}
+          MUARA_SPIKE_SQLITE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.sqlite
+        run: |
+          chmod -R a-w "${{ matrix.bundle_dir }}"
+          go build -o bin/spike ./cmd/spike
+          HOME=$(mktemp -d) bin/spike -table orders
+        # If DuckDB tried to fetch anything it would have to write into a
+        # directory that refuses writes or into a HOME that stays empty. On
+        # Linux the network is also pulled away underneath the process.
+
+      - name: Run the spike tests
+        working-directory: muara.bi-desktop
+        env:
+          CGO_ENABLED: "1"
+          DUCKDB_EXTENSION_DIRECTORY: ${{ matrix.bundle_dir }}
+        run: go test ./...
+
+      - name: Show that the memory reader compiles for every shipped platform
+        working-directory: muara.bi-desktop
+        run: |
+          set -eu
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}
+            arch=${target#*/}
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build ./internal/meminfo
+          done
+        # internal/meminfo is pure Go on all three OSes, so this gate belongs in
+        # CI even though the app itself needs CGO — it is the only Windows code
+        # that can be proven from any machine.
+
+      - name: Report the WebView2 runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          if (-not (Test-Path $key)) {
+            $fallback = "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application"
+            if (Test-Path $fallback) { Get-ChildItem $fallback | Select-Object -ExpandProperty Name; exit 0 }
+            Write-Error "no WebView2 runtime on this runner - exactly the case the installer must handle"
+            exit 1
+          }
+          (Get-ItemProperty -Path $key).pv
+        # Wails does not render on Windows, it hosts WebView2. Whether the
+        # runtime is present — and what the installer should do when it is not —
+        # is the fourth Windows question, and it decides the product's Windows
+        # floor the same way the linker pin decided the macOS one.
+
+  # The negative proof has a shape of its own on desktop: a CGO-free app binary
+  # cannot be built at all (Wails' pkg/application needs the Objective-C side),
+  # so the gate is "this must fail", not "it must start and refuse".
+  cgo-off-must-not-produce-an-app:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: muara.bi-desktop
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: muara.bi-desktop/go.mod
+      - name: Build the app without CGO and expect failure
+        working-directory: muara.bi-desktop
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          if go build -o /tmp/should-not-exist .; then
+            echo "a CGO-free desktop binary was produced" >&2
+            exit 1
+          fi

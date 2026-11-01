@@ -31,20 +31,29 @@ Alat yang harus ada sebelum mulai (kalau belum, bilang dulu, jangan kerjakan sam
   dengan `pattern all:frontend/dist: no matching files found`.
 - Di PowerShell set env-nya `$env:CGO_ENABLED="1"` (bukan `CGO_ENABLED=1 go build` seperti di shell unix).
 
-Kerjakan empat pertanyaan Windows di PLAN.md M0, satu per satu, masing-masing dengan bukti:
+Kerjakan empat pertanyaan Windows di PLAN.md M0, satu per satu, masing-masing dengan bukti.
+Urutan langkahnya sudah ditulis sebagai CI di `.github/workflows/desktop.yml` — jalankan langkah
+yang sama di mesin ini; workflow itu **belum pernah jalan di runner mana pun**, jadi hasil di
+mesin Windows adalah pembuktian pertamanya.
 1. Link `cmd/spike` dengan CGO. Asumsi yang sudah terbukti dari modul: go-duckdb v1.8.5 punya
    `deps/windows_amd64/libduckdb.a` dan direktif cgo-nya memakai `--static -lstdc++`, jadi
    yang dibutuhkan adalah gcc mingw-w64, bukan MSVC. Kalau link gagal, catat error pertamanya.
-2. Bisa tidak biner hasil link itu `LOAD` extension dari folder aplikasi? Buat bundelnya di mesin ini
-   (butuh jaringan sekali), dari folder `backend` repo web, dengan path **absolut** ke repo desktop:
+2. Bisa tidak biner hasil link itu `LOAD` extension dari folder aplikasi? **Tidak perlu Postgres
+   untuk pertanyaan ini** — sudah ada fixture SQLite di `tests\fixtures\spike.sqlite` (8 KB, ikut
+   ter-commit) dan `cmd/spike -sqlite-file`. Buat bundelnya di mesin ini (butuh jaringan sekali),
+   dari folder `backend` repo web, dengan path **absolut** ke repo desktop:
    `go run ./cmd/duckdb-bundle -out <path-repo-desktop>\build\duckdb-extensions`
    (foldernya harus jadi `v1.1.3\windows_amd64`; kalau berkasnya tidak ada, itu jawaban untuk
    pertanyaan 3 dan jadi titik putar ke Tauri/sidecar sesuai exit criteria M0).
 3. Buktikan bundel cukup tanpa jaringan: arahkan `DUCKDB_EXTENSION_DIRECTORY` ke folder tadi lalu
-   jalankan spike dengan DSN Postgres lewat env, bukan yang di-hardcode. Sertakan juga hasil
+   jalankan spike dengan `-sqlite-file tests\fixtures\spike.sqlite -table orders` (harus keluar
+   `tables:1` dan `rows_in_orders:6` tanpa satu pun koneksi keluar), lalu ulangi dengan DSN
+   Postgres lewat env, bukan yang di-hardcode. Sertakan juga hasil
    `go test ./internal/meminfo -run TestTotalReportsASanePhysicalSize` — pembaca RAM Windows
    (`kernel32!GlobalMemoryStatusEx`) sudah ditulis dan sudah di-cross-compile, tapi belum pernah
-   dijalankan di mesin Windows sungguhan.
+   dijalankan di mesin Windows sungguhan. `go test ./...` di repo desktop juga menjalankan
+   `TestSpikeSQLiteFixtureReachesTheGrid`, jadi kalau ia hijau, jalur binding→engine→grid sudah
+   terbukti di Windows tanpa perlu server apa pun.
 4. WebView2: pastikan **runtime**-nya ada, bukan browser Edge-nya — yang dicari folder
    `C:\Program Files (x86)\Microsoft\EdgeWebView\Application` (atau kunci registri
    `HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`).
@@ -291,6 +300,41 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   jadi kegagalannya milik server Postgres sample (stack user: `muara_api`/`muara_web`/`muara_redis` unhealthy,
   host 94% penuh), bukan milik desktop. Sisa M6 tidak berubah: Developer ID + notarization + dmg, karena ad-hoc
   tidak tebus Gatekeeper untuk distribusi.
+- **Bukti connector tanpa server: fixture SQLite + CI per-OS ditulis (2026-11-01, gelombang kedua M0):**
+  sisa M0 semuanya tersandar pada satu hal yang tidak ada di mesin ini — Windows, hosting CI, dan Postgres
+  sample yang sedang rusak. Yang dilepas hari ini adalah **instrumentnya**, supaya pertanyaan-pertanyaan itu
+  tinggal dijalankan, bukan dirancang ulang di mesin lain:
+  1. `tests/fixtures/spike.sqlite` (8 KB, ter-commit) + `-sqlite-file` di `cmd/spike` +
+     `AttachSampleSQLite()` di jembatan. Alasannya spesifik: SQLite adalah satu-satunya sumber nyata yang bisa
+     dicapai **tanpa server, tanpa kredensial, tanpa jaringan**, dan runner Windows tidak punya Postgres — jadi
+     pertanyaan "biner yang di-link statis bisa `LOAD` extension dari bundel tidak?" tidak perlu lagi menunggu
+     database. Terukur di mesin ini: `HOME=/tmp/muara-fakehome spike -extension-directory=<hanya-baca>
+     -sqlite-file=tests/fixtures/spike.sqlite -table orders` → `tables:1`, `rows_in_orders:6`, bundel tetap
+     hanya-baca, HOME tetap kosong. Satu jebakan yang ketemu: DuckDB membaca tabel attached sqlite sebagai
+     `sample.orders`, **tanpa** skema `public` seperti Postgres (`sample.public.orders` gagal) — jadi query
+     bawaan UI ikut dua bentuk, dan tombol SQLite hanya menimpa editor kalau isinya masih query default
+     (jangan pernah membuang SQL yang diketik user).
+  2. `TestSpikeSQLiteFixtureReachesTheGrid` membuktikan jalur binding→engine→grid dengan angka nyata (3 baris,
+     3 kolom, `truncated=false`, baris teratas `wholesale` karena revenue 540) — ini yang menutup sisi macOS
+     dari butir "SELECT nyata tampil di grid" tanpa menunggu Postgres user sembuh.
+     `CGO_ENABLED=1 go test ./...` hijau (`muara.bi/desktop` 1,8 dtk), `gofmt -l` bersih.
+  3. `.github/workflows/desktop.yml` — **belum pernah jalan di runner mana pun**, jadi isinya klaim, bukan
+     hasil. Job-nya satu matriks (macos-14 / ubuntu-24.04 / windows-latest) yang mengodekan setiap invariant
+     yang ditemukan hari ini: `npm run build` sebelum `go build`, pin `CGO_LDFLAGS` + assert `otool` lewat
+     `build/macos-app.sh`, bundel per-OS dari `cmd/duckdb-bundle` di repo engine, bukti LOAD lewat fixture
+     SQLite, pengulangan bukti dengan bundel hanya-baca + `HOME` kosong, gerbang cross-build `internal/meminfo`
+     enam kombinasi, dan langkah WebView2 yang membaca kunci registri `EdgeUpdate\Clients\{F3017226-…}` — bukan
+     browser Edge. Ada job kedua yang bentuknya "harus gagal": `CGO_ENABLED=0 go build .` di desktop **tidak
+     boleh** menghasilkan biner (temuan 1 §3), jadi gerbangnya adalah build itu sendiri, bukan runtime.
+     Yang direhearsal lokal: langkah macOS, langkah bukti offline, gerbang meminfo, `go test`. Yang butuh
+     mesin lain: tiga langkah Windows.
+     Dua syarat yang harus dipenuhi sebelum workflow ini bisa hijau: repo desktop **punya remote**, dan
+     `ENGINE_REPO_TOKEN` (PAT) — `GITHUB_TOKEN` tidak bisa menyeberang repository, padahal `replace
+     ../muara.bi-service/backend/engine` menuntut kedua repo ada sebagai folder sepupu dengan nama persis.
+  4. `build/macos-app.sh` sekarang **menolak** argumen bundel yang tidak ada dan **tidak lagi** membuat folder
+     `Resources/duckdb/extensions` kosong. Itu bug yang baru kelihatan waktu CI ditulis: folder kosong tetap
+     ter-resolve oleh `bundledExtensionDir()`, engine mengira ada bundel, `INSTALL` dilompati, dan setiap
+     connector melaporkan "unavailable" — kegagalan yang jauh lebih membingungkan daripada tidak dibundle sama sekali.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -383,11 +427,13 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    sampai ke DuckDB, CGO-off menolak dengan jelas, dan bundle sekarang benar-benar offline.
    **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB)
    dan **React/Vite sudah menggantikannya sebagai UI** (`frontend/dist` ter-embed, dibuktikan tes).
-   Yang belum: pemasangan `meminfo.Budget` ke `NewQueryService` (butuh UI pengaturan FR-15, M4);
-   bundel extension di **linux & windows** (darwin/arm64 sudah terbukti, lihat bullet §3 2026-11-01);
-   CI per-OS — dan catatan: repo ini **belum punya remote**, jadi workflow CI belum bisa membuktikan apa pun
-   sampai ada hosting; tiga pertanyaan Windows; dan apakah `threads` perlu ikut profil —
-   sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
+   Yang belum (dan semuanya tersandar pada hal yang tidak ada di mesin ini): pemasangan `meminfo.Budget`
+   ke `NewQueryService` (butuh UI pengaturan FR-15, M4); bundel extension di **linux & windows** —
+   langkahnya sudah tertulis di `.github/workflows/desktop.yml`, tinggal dijalankan; **tiga pertanyaan
+   Windows** butuh mesin Windows; **CI per-OS** butuh remote + `ENGINE_REPO_TOKEN` (PAT, karena `GITHUB_TOKEN`
+   tidak menyeberang repository dan `replace ../muara.bi-service/backend/engine` menuntut dua repo bersebelahan);
+   dan apakah `threads` perlu ikut profil — sekarang masih hardcoded 2
+   (`engine/duckdb/session_cgo.go`, `NewEngine`) dan pengukurannya butuh jalur Postgres yang bukan localhost.
    Sudah terjawab 2026-11-01: **cara membaca RAM total per OS** (`internal/meminfo`, tiga OS enam GOARCH
    ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`), **bundel extension di macOS**
    (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong), **minimum macOS = 14 (Sonoma)**
@@ -395,10 +441,12 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    **artefak `.app` macOS** (`build/macos-app.sh` → `/Applications/muara-bi.app`, `LSMinimumSystemVersion`
    tertulis, connector dimuat dari dalam bundle oleh `bundledExtensionDir()`).
    Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
-   `sh build/macos-app.sh /tmp/muara-ext` dan jalankan binernya dari shell dengan
-   `MUARA_SPIKE_PG_DSN` di-set (lihat resep §5) — klik "Attach Postgres sample" → "Jalankan query".
-   Jangan lewat langkah bundel: tanpa argumen, `.app` tetap bangun tapi `Attach` gagal karena connector tidak
-   ada, dan pesan DuckDB-nya (`Install it first using "INSTALL postgres"`) menyesatkan di desktop offline.
+   `sh build/macos-app.sh <folder-bundle>` dan jalankan binernya dari shell dengan
+   `MUARA_SPIKE_SQLITE_FILE` dan/atau `MUARA_SPIKE_PG_DSN` di-set (resep §5) — klik "Attach SQLite fixture"
+   (tidak butuh server apa pun) atau "Attach Postgres sample" → "Jalankan query" untuk melihat grid terisi.
+   Jangan lewat langkah bundel: sejak 2026-11-01 `build/macos-app.sh` **menolak** path bundel yang tidak ada,
+   karena sebelumnya ia membuat folder kosong dan kegagalan yang muncul adalah "extension unavailable", bukan
+   "kamu lupa mem-bundle".
    Berkas extension hasil spike (`/tmp/muara-ext`, `/tmp/duckdb-bundle`) **sudah dihapus 2026-11-01** sesuai
    permintaan; untuk menjalankan langkah itu lagi, buat bundelnya lebih dulu lewat alat di repo web
    (`cd ../muara.bi-service/backend && CGO_ENABLED=1 go run ./cmd/duckdb-bundle -out <folder>`) lalu arahkan
@@ -454,9 +502,17 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   cd ../muara.bi-service/backend && CGO_ENABLED=1 go run ./cmd/duckdb-bundle -out /tmp/muara-ext  # 103 MB, per-OS
   cd ../../muara.bi-desktop && sh build/macos-app.sh /tmp/muara-ext   # cek minos + plutil dilakukan sendiri
   cp -R build/bin/muara-bi.app /Applications/
-  env -u DUCKDB_EXTENSION_DIRECTORY MUARA_SPIKE_PG_DSN="host=localhost port=5435 …" \
+  env -u DUCKDB_EXTENSION_DIRECTORY \
+    MUARA_SPIKE_SQLITE_FILE="$PWD/tests/fixtures/spike.sqlite" \
+    MUARA_SPIKE_PG_DSN="host=localhost port=5435 …" \
     /Applications/muara-bi.app/Contents/MacOS/muara-bi
   ```
+
+  **Ruang disk sekarang memblokir langkah ini, dan itu harus disebut sebelum ada yang menyalahkan skripnya:**
+  link DuckDB menaikkan pemakaian puncak ±1,1 GiB (terukur 2026-11-01: sisa turun dari 1,9 GiB ke 820 MiB di
+  tengah build), sementara sisa disk mesin ini sudah jatuh ke **±500 MiB (95%)** — jadi `go build` besar
+  sengaja tidak dijalankan lagi sampai ruang dibersihkan. Yang tetap bisa dikerjakan tanpa ruang: `go test`,
+  `npm run build`, `go build ./cmd/spike` (inkremental), dan seluruh langkah bukti SQLite di atas.
 
   `env -u` di baris terakhir itu penting sebagai bukti, bukan kebersihan: ia menunjukkan bahwa path connector
   berasal dari dalam `.app`, bukan dari variabel lingkungan yang tertinggal di shell (`lsof -p <pid>` mengonfirmasi

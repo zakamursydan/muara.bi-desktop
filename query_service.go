@@ -95,6 +95,26 @@ func (s *QueryService) AttachSample() error {
 	return s.session.AttachPostgres(context.Background(), alias, dsn)
 }
 
+// sqliteFileEnv names the fixture the same way the DSN is named: from the
+// environment, so the webview never supplies a path the app would open.
+const sqliteFileEnv = "MUARA_SPIKE_SQLITE_FILE"
+
+// AttachSampleSQLite mounts the committed SQLite fixture. It exists because it
+// is the only real external source this app can read with no server, no
+// credentials and no network — which makes it the source CI can use to answer
+// "can this binary LOAD a bundled connector?" on all three platforms.
+func (s *QueryService) AttachSampleSQLite() error {
+	path := os.Getenv(sqliteFileEnv)
+	if path == "" {
+		return fmt.Errorf("%s is not set", sqliteFileEnv)
+	}
+	const alias = "sample"
+	if !sqlident.IsPlain(alias) {
+		return fmt.Errorf("alias %q is not a plain identifier", alias)
+	}
+	return s.session.AttachSQLite(context.Background(), alias, path)
+}
+
 // Run executes one statement under the engine's guardrails. ValidateQuery is
 // called here rather than trusted from the UI, matching the product rule that
 // the desktop app is read-only.

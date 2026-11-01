@@ -127,6 +127,10 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       tes, bukan run manual: `TestEmbeddedViteBuildIsServed`. Urutan build untuk CI: **`npm run build`
       sebelum `go build`** (dist di-gitignore → `go:embed` gagal tanpa itu).
 - [ ] Satu binding memanggil engine dan `SELECT` nyata dari Postgres tampil di grid — **di Windows**.
+      Sisi macOS sudah tertutup 2026-11-01 lewat jalur yang tidak butuh server: `AttachSampleSQLite` +
+      `TestSpikeSQLiteFixtureReachesTheGrid` menuntut 3 baris agregat nyata dari fixture lewat jembatan yang
+      sama dengan yang dipakai tombol "Jalankan query" di jendela (`columns` 3, `truncated=false`), dan
+      `cmd/spike -sqlite-file` membuktinya dari biner yang sama.
 - [ ] Empat pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi (tiga dari
       checklist awal; WebView2 ditambahkan 2026-11-01 karena BRD tidak pernah menyebutnya):
   - [ ] go-duckdb v1.8.5 menyediakan `libduckdb.a` untuk windows/amd64? ABI-nya cocok dengan mingw-w64?
@@ -137,7 +141,11 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
         GCC/MinGW**, jadi jawaban alatnya: **mingw-w64 wajib**, MSVC `link.exe` tidak akan bisa. Yang tersisa
         hanyalah link nyata di Windows — arsip `.a` belum tentu kompatibel dengan build MinGW yang terpasang.
   - [ ] biner yang di-link statis bisa `LOAD` extension di Windows (Unix pakai `-extldflags=-Wl,-E`
-        untuk `dlopen`; Windows tidak punya `RTLD_GLOBAL`)?
+        untuk `dlopen`; Windows tidak punya `RTLD_GLOBAL`)? **Instrumentnya sudah ada dan sudah terbukti di
+        macOS (2026-11-01):** `cmd/spike -sqlite-file` + fixture `tests/fixtures/spike.sqlite` (8 KB,
+        ter-commit) menjawab pertanyaan ini **tanpa server, tanpa kredensial, tanpa jaringan** — dijalankan
+        dengan bundel di-`chmod a-w` dan `HOME` folder kosong, keluar `tables:1` dan `rows_in_orders:6`.
+        Bentuk yang sama sudah ditulis sebagai langkah CI, jadi sisa Windows-nya tinggal menjalankan.
   - [x] `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` tersedia sebagai berkas `windows_amd64`?
         **Terjawab positif 2026-11-01 tanpa menunggu mesin Windows:** HEAD ke
         `https://extensions.duckdb.org/v1.1.3/<platform>/<scanner>.duckdb_extension.gz` mengeluarkan 200 —
@@ -175,6 +183,15 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       runner macOS 15 tidak akan jalan di Sonoma. Jangan pakai jumlah warning `built for newer` sebagai gerbang:
       `go.o` bikinan toolchain ikut menghasilkan warning meskipun tidak ada yang salah
       ([docs/engine-map.md](docs/engine-map.md) §13).
+      **Status 2026-11-01: file-nya sudah ditulis (`.github/workflows/desktop.yml`), runner-nya belum pernah
+      menjalankannya satu kali pun.** Repo desktop belum punya remote, dan job-nya butuh dua hal yang belum ada:
+      checkout **repo engine sebagai folder sepupu** (karena `replace … => ../muara.bi-service/backend/engine`,
+      jadi satu repo saja tidak cukup) dengan `ENGINE_REPO_TOKEN` — token PAT, karena `GITHUB_TOKEN` tidak bisa
+      menyeberang repository. Yang sudah direhearsal di mesin ini: langkah macOS (pin + assert `otool` +
+      `plutil` lewat `build/macos-app.sh`), langkah bundel + bukti LOAD offline (folder hanya-baca, `HOME` kosong),
+      gerbang cross-build `internal/meminfo` (enam GOOS/GOARCH ok), dan `go test ./...` hijau. Yang **tidak** bisa
+      dibuktikan dari mesin ini: tiga langkah Windows (mingw, `LOAD`, WebView2) — persis pertanyaan yang jadi
+      alasan file itu ada.
 - [x] Bukti negatif CGO — **bentuknya berubah dari asumsi checklist** (2026-11-01): di macOS
       `CGO_ENABLED=0 go build ./...` **gagal kompilasi** di `pkg/application` (`undefined: macosApp`,
       `newPlatformApp`), jadi aplikasi desktop tidak bisa menghasilkan artefak CGO-off yang "menolak start".

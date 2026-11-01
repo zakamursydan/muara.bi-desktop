@@ -336,6 +336,20 @@ Sisi negatifnya dijaga `TestBundledExtensionDirectoryStaysOffline` di engine (bu
 folder tetap kosong). Untuk linux/windows, pakai `--network none` dan runner windows di CI; itu bukti yang
 lebih kuat daripada trik di atas, bukan pengulangan pekerjaan.
 
+**`Session.AttachSQLite` membuat bukti itu tidak butuh server (2026-11-01).** Connector `sqlite_scanner`
+membaca berkas, bukan menghubungi host: dengan satu fixture 8 KB di
+`muara.bi-desktop/tests/fixtures/spike.sqlite`, pertanyaan "biner ini bisa LOAD connector dari bundel?"
+terjawab di mesin mana pun tanpa Postgres, tanpa kredensial, dan tanpa koneksi yang bisa timeout — bentuk
+yang tepat untuk runner Windows, yang tidak punya database apa pun.
+Dua perilaku engine yang harus diketahui pemanggil, keduanya terukur hari ini:
+
+1. **Catalog attached sqlite tidak punya skema `public`.** `SELECT … FROM sample.orders` lulus (1 tabel,
+   6 baris), `sample.public.orders` gagal — jadi nama relasi lengkap mengikuti bentuk sumbernya, dan query
+   bawaan tidak bisa dipakai silang antara Postgres dan SQLite.
+2. `SELECT count(*) FROM duckdb_tables() WHERE database_name = 'sample'` adalah cara menghitung tabel
+   sumber **tanpa** menginterpolasi identifier dari katalog remote; `information_schema` per-catalog
+   (`sample.information_schema.tables`) hanya berlaku untuk Postgres.
+
 ## 13. Deployment target macOS: siapa yang menentukan `minos`, dan apa yang boleh diiklankan (2026-11-01)
 
 Pertanyaannya bukan "berapa warning yang kita dapat", tapi "biner yang kita kirim mengklaim bisa jalan di OS
@@ -395,6 +409,23 @@ link, sekali sebagai plist — dan `.app` hari ini melakukan keduanya (`LSMinimu
 diverifikasi `plutil -lint` dan `defaults read`). Konsekuensi yang belum selesai ikut tercatat di sana:
 `codesign --sign -` menghasilkan tanda tangan ad-hoc, yang cukup untuk menjalankan build di mesin pembuatnya
 tetapi tidak akan tebus Gatekeeper di mesin orang lain; Developer ID + notarization + dmg tetap pekerjaan M6.
+
+## 14. Batas yang dipasang Wails v3.0.0 pada jalur build dan pada bindings (2026-11-01)
+
+Dua hal yang baru kelihatan waktu spike menyentuh sisi build, bukan sisi runtime:
+
+1. **`wails3 build` tidak bisa dipakai tanpa `task`.** CLI-nya mendelegasi build/package ke
+   `build/darwin/Taskfile.yml` dan berhenti dengan `ERROR task: No Taskfile found` pada skeleton yang
+   dirakit tangan; `task` sendiri bukan dependensi Go, jadi ia harus dipasang terpisah. Artefak M0 karena itu
+   dirakit `build/macos-app.sh` — dan itu **bukan** jalur produksi: Taskfile Wails ikut mengurus entitlements,
+   Developer ID, notarization dan dmg, jadi M6 tetap harus membuka jalur itu, bukan memperpanjang skrip.
+2. **Bindings bukan berkas yang boleh diedit tangan.** `frontend/bindings/**` berisi pemanggilan
+   `$Call.ByID(<hash>)` — nomor metode hasil hash dari generator, bukan nama. Menambah satu method di Go
+   (`AttachSampleSQLite`, 2026-11-01) tidak akan pernah terlihat di UI sampai
+   `.tools/bin/wails3 generate bindings -d frontend/bindings` dijalankan; menulis ulang berkasnya manual
+   menghasilkan binding yang memanggil ID milik metode lain, dan kegagalan itu baru muncul saat diklik.
+   Generator itu sendiri bersih dan cepat (369 paket, 5 metode, 2,2 dtk) dan tidak butuh `task`.
+
 
 
 

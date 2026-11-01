@@ -31,6 +31,17 @@ export function AttachSample() {
 }
 
 /**
+ * AttachSampleSQLite mounts the committed SQLite fixture. It exists because it
+ * is the only real external source this app can read with no server, no
+ * credentials and no network — which makes it the source CI can use to answer
+ * "can this binary LOAD a bundled connector?" on all three platforms.
+ * @returns {$CancellablePromise<void>}
+ */
+export function AttachSampleSQLite() {
+    return $Call.ByID(1950275794);
+}
+
+/**
  * @returns {$CancellablePromise<void>}
  */
 export function Close() {
