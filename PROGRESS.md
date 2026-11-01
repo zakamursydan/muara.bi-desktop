@@ -65,7 +65,11 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   ditolak engine padahal DuckDB menerimanya), menghasilkan engine yang sekarang menerima unit biner
   `KiB|MiB|GiB|TiB`, tes budget dua kasus (desimal + biner, bandingkan byte), dan default
   `min(4GiB, RAM/4)` dengan slider FR-15 berlabel GiB. Fakta pembanding yang tidak sengaja ketemu:
-  kalau tidak di-SET, DuckDB mengambil **80% RAM** sendiri (`6.3 GiB` di host 8 GB).
+  kalau tidak di-SET, DuckDB mengambil **80% RAM** sendiri (`6.3 GiB` di host 8 GB). Keputusan user menyusul
+  pagi 2026-11-01: **default web sekalian ikut `2GiB`** (`duckdb.DefaultMaxMemory`, `DUCKDB_MAX_MEMORY`,
+  fallback `docker-compose.yml`) supaya dua produk membaca angka yang sama dengan arti yang sama — efeknya
+  plafon compose naik 7% jadi 2 × 2,15 GB, yang tetap aman karena DuckDB spill ke disk, bukan mengalokasikan
+  plafonnya.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -136,8 +140,9 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
     probe tidak pernah melihat baris ekstra, sehingga semua hasil tampak utuh. Ini kontrak baru antara
     engine dan pemanggil — desktop wajib meneruskan cap lewat `QueryOptions`, bukan lewat teks SQL.
   - **Batas memori (M1.5, diverifikasi 2026-10-31; dikoreksi 2026-11-01):** `SET max_memory` datang dari
-    `GuardrailConfig.MaxMemory` (`"2GB"` bila tidak diisi) dan `NewEngine` menolak nilai yang tidak
-    berbentuk angka+unit. Catatan lama di sini salah dua hal, dan keduanya sudah dibetulkan di engine:
+    `GuardrailConfig.MaxMemory` (`"2GiB"` bila tidak diisi — ejaan biner sejak 2026-11-01, sebelumnya `2GB`
+    desimal) dan `NewEngine` menolak nilai yang tidak berbentuk angka+unit. Catatan lama di sini salah dua hal,
+    dan keduanya sudah dibetulkan di engine:
     `"2048"` **bukan** dibaca DuckDB sebagai byte — DuckDB menolaknya sendiri
     (`Parser Error: Unknown unit for memory_limit`); dan engine tadinya **menolak `2GiB`** padahal itu
     ejaan biner yang DuckDB terima. Empat hasil probe langsung (2026-11-01): `2GiB` → tepat 2.147.483.648

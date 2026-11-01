@@ -67,13 +67,13 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       `muara.bi/engine v0.0.0` tanpa hash — artinya engine di-resolve dari `replace => ./engine`, bukan disalin.
       Ini bukti yang desktop butuhkan: satu salinan engine, dua produk.
 - [x] **`max_memory` DuckDB jadi konfigurasi (2026-10-31, M1.5)** — `GuardrailConfig.MaxMemory string`
-      dengan `duckdb.DefaultMaxMemory = "2GB"` (sama dengan angka yang tadinya di-hardcode di
+      dengan `duckdb.DefaultMaxMemory = "2GB"` saat M1.5 ditutup (sama dengan angka yang tadinya di-hardcode di
       `session_cgo.go`); `NewEngine` memvalidasi lewat `NormalizeMaxMemory` sehingga **konfigurasi salah
       gagal di startup**, bukan diam-diam memakai budget lama. Nilai masuk ke `SET max_memory=` lewat
       `quoteLiteral`. Web membacanya dari `config.DuckDBConfig.MaxMemory` (`DUCKDB_MAX_MEMORY`, default
-      `2GB`) → `internal/app/server/service.go:59`; **desktop nanti mengambil field yang sama dari
-      profilnya** (FR-15), tidak ada jalur kedua.
-      Profil desktop kini **putus** (BRD §15 butir 6, 2026-11-01): default `min(4GiB, RAM/4)` — 2 GiB di
+      `2GiB` sejak 2026-11-01, sebelumnya `2GB`) → `internal/app/server/service.go:59`; **desktop mengambil
+      field yang sama dari profilnya** (FR-15), tidak ada jalur kedua.
+      Profil desktop kini **sudah diputuskan** (BRD §15 butir 6, 2026-11-01): default `min(4GiB, RAM/4)` — 2 GiB di
       laptop 8 GB, 4 GiB di 16 GB ke atas, dan selalu satu sesi lebih dulu.
       Empat hal yang perlu diingat saat menulis settings desktop — semuanya diprobe langsung ke DuckDB pada
       2026-11-01, dan dua di antaranya **membatalkan catatan sesi sebelumnya**: (1) DuckDB menerima unit
@@ -82,8 +82,10 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       sudah menerimanya, padahal sebelum 2026-11-01 justru `2GiB` yang ditolak; (2) angka polos seperti
       `"2048"` ditolak **oleh DuckDB sendiri** (`Unknown unit for memory_limit`), bukan dibaca sebagai byte
       seperti yang dicatat semula; (3) kalau tidak di-SET, DuckDB mengambil **80% RAM** (terukur 6.3 GiB di
-      host 8 GB), jadi nilai harus selalu eksplisit; (4) puncak memori = **jumlah sesi × budget per sesi**,
-      jadi settings menampilkan keduanya bersama.
+      host 8 GB), jadi nilai harus selalu eksplisit; (4) plafon memori = **jumlah sesi × budget per sesi**,
+      jadi settings menampilkan keduanya bersama — dan ini plafon, bukan alokasi: setelah melewatinya DuckDB
+      spill ke `temp_directory`, sehingga budget yang lebih besar dari RAM melambatkan query, tidak langsung
+      mematikan aplikasi.
       `threads` (baris `:39`) sengaja tetap hardcoded 2 dan ditandai di kode — masuk M0.
       Ditest: `TestNormalizeMaxMemory` (CGO-free), `TestEngineAppliesConfiguredMemoryBudget` dan
       `TestEngineRejectsUnusableMemoryBudget` (CGO, bandingkan **byte** lewat `current_setting`).
