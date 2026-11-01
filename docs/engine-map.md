@@ -285,8 +285,9 @@ mengompilasi silangnya di tiga OS.
 - **bulat ke bawah, ke kelipatan MiB** — `max_memory` itu plafon, bukan alokasi; kurang sedikit berarti spill
   lebih awal, bukan hasil yang terpotong.
 - **dijepit 256 MiB … 4 GiB** — pembacaan aneh (VM 512 MB, mock di tes) tidak boleh pernah menghasilkan
-  `0`, yang ditolak DuckDB. Ini juga menutup celah di sisi engine: `maxMemoryPattern` menerima `0GiB`
-  karena hanya melihat bentuk, jadi yang menjamin nilai > 0 untuk sementara adalah produk.
+  budget nol. Engine sekarang juga menolak nol (`NormalizeMaxMemory` meng-parse angkanya, 2026-11-01), jadi
+  batas bawah ini bukan satu-satunya penjaga — ia menjaga produk dari *janji* yang tidak masuk akal, engine
+  menjaga dari konfigurasi operator yang salah.
 - **GiB kalau utuh, MiB kalau tidak** — string harus lolos `NormalizeMaxMemory` dan satuannya harus sama
   dengan label slider FR-15; `1536MiB` dikirim apa adanya dan DuckDB menyimpannya persis 1610612736 byte.
 

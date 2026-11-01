@@ -23,7 +23,9 @@ const (
 const maxBudget uint64 = 4 * gib
 
 // minBudget keeps a degenerate reading (a 512 MB VM, or a mock in a test) from
-// producing a budget DuckDB would refuse: 0 is not a valid memory limit.
+// producing a budget that means nothing. Zero is what such a reading would round
+// down to, and the engine rejects it outright — so this floor is the product's own
+// promise, not a restatement of a DuckDB rule.
 const minBudget uint64 = 256 * mib
 
 // Total returns the physical memory of this machine in bytes.

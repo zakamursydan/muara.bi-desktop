@@ -163,7 +163,7 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       per-GOOS bersih, sehingga "tersusun di ketiga OS" bisa dijaga CI dari satu mesin.
       `Budget()` = `min(4GiB, RAM/4)`, **dibulatkan ke bawah** ke kelipatan MiB (plafon bukan alokasi —
       kurang sedikit hanya berarti spill lebih awal, tidak memotong hasil), dijepit 256 MiB–4 GiB supaya
-      pembacaan aneh tidak pernah menghasilkan `0` yang ditolak DuckDB, dan ditulis dalam GiB kalau utuh
+      pembacaan aneh tidak pernah menghasilkan budget bernilai nol, dan ditulis dalam GiB kalau utuh
       supaya string-nya lolos `NormalizeMaxMemory` dan satuannya sama dengan label slider FR-15.
       Terukur di mesin ini: 8589934592 byte → `2GiB` (identik dengan default engine, dan itu kebetulan yang
       menguntungkan, bukan asumsi). `TestRAMBudgetReachesDuckDB` membuktikan string-nya sampai sebagai byte
@@ -190,13 +190,16 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
 
 ## M2 · Bersihkan blocker data (di engine, dipakai dua produk)
 
-- [ ] **`NormalizeMaxMemory` menerima `0GiB`.** `maxMemoryPattern` hanya melihat bentuk
-      (`^\d+(\.\d+)?(unit)$`), bukan nilai, jadi nol lolos validasi startup — padahal kontrak M1.5 justru
-      "config salah gagal di startup". Belum di-probe apa yang DuckDB lakukan dengan `0GiB` (yang sudah
-      tahu: angka polos ditolak, `-1` diterima sebagai unlimited), jadi yang dipastikan di sini adalah
-      engine tidak menolak, bukan bahwa DuckDB menolak. Desktop tidak pernah mengirimnya (`meminfo.Budget`
-      dijepit ≥256 MiB), tapi web membacanya mentah dari `DUCKDB_MAX_MEMORY`. Perbaikannya satu cek
-      angka-nol + tes; kerjakan di engine supaya dua produk ikut aman.
+- [x] **Budget nol (`0GiB`) lolos validasi engine — ditutup 2026-11-01.** `maxMemoryPattern` hanya
+      melihat bentuk (`^\d+(\.\d+)?(unit)$`), jadi nol lolos validasi startup — padahal kontrak M1.5 justru
+      "config salah gagal di startup". Perbaikannya di engine supaya dua produk ikut aman: angka di depan
+      unit kini di-parse dan `0`/`0.0` ditolak dengan `ErrInvalidMemoryBudget`, plus dua gerbang tes
+      (`TestNormalizeMaxMemory` tujuh bentuk nol, `TestEngineRejectsUnusableMemoryBudget` kasus `NewEngine`).
+      Perilaku DuckDB untuk `0GiB` sengaja **tidak** di-probe: engine tidak lagi mengirim nol ke DuckDB, jadi
+      tidak ada yang perlu dipastikan di sisinya. Desktop tidak pernah mengirimnya (`meminfo.Budget` dijepit
+      ≥256 MiB) — yang terbuka adalah web, lewat `DUCKDB_MAX_MEMORY`, dan itu sekarang tertutup. Detail di
+      web `PROGRESS.md` (blok "Budget `max_memory` bernilai nol").
+
 
 
 - [ ] `SyncSchema` lintas driver (`connection_service.go:321,367` saat ini hanya Postgres dan diam).
