@@ -138,9 +138,14 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
         hanyalah link nyata di Windows — arsip `.a` belum tentu kompatibel dengan build MinGW yang terpasang.
   - [ ] biner yang di-link statis bisa `LOAD` extension di Windows (Unix pakai `-extldflags=-Wl,-E`
         untuk `dlopen`; Windows tidak punya `RTLD_GLOBAL`)?
-  - [ ] `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` tersedia sebagai berkas `windows_amd64`?
-        Dijawab oleh `cmd/duckdb-bundle` yang **dijalankan di Windows** (foldernya jadi
-        `v1.1.3/windows_amd64`), bukan oleh asumsi dari OS lain.
+  - [x] `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` tersedia sebagai berkas `windows_amd64`?
+        **Terjawab positif 2026-11-01 tanpa menunggu mesin Windows:** HEAD ke
+        `https://extensions.duckdb.org/v1.1.3/<platform>/<scanner>.duckdb_extension.gz` mengeluarkan 200 —
+        `windows_amd64/postgres_scanner` 22,95 MB, `windows_amd64/mysql_scanner` 10,80 MB, dan
+        `linux_amd64` juga ada (postgres 16,37 MB, mysql 14,29 MB). Jadi bundel linux bisa dibuat di CI tanpa
+        menunggu apa pun, dan pertanyaan Windows yang tersisa bukan lagi ketersediaan berkas tapi `LOAD`-nya.
+        Catatan cara ukur, supaya tidak diulang: URL **tanpa** `.gz` adalah 404 untuk *semua* platform —
+        termasuk `osx_arm64` yang sudah terbukti jalan — jadi HEAD tanpa `.gz` bukan bukti berkasnya tidak ada.
   - [ ] **WebView2** — pertanyaan keempat yang belum pernah ditulis di BRD/PLAN: Wails di Windows tidak
         merender sendiri, ia memakai WebView2 Runtime. Di Windows 11 umumnya sudah ada, di Windows 10 belum
         tentu. Yang harus dipastikan di mesin Windows: versi runtime yang terpasang, apakah aplikasi jalan tanpanya,
@@ -202,12 +207,23 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       Yang terbukti jalan: `CGO_LDFLAGS="-mmacosx-version-min=14.0"` mengalahkan direktif Wails — dilihat dari
       hasil link-nya (`minos 14.0`, **nol warning**), dan direproduksi tanpa Wails lewat satu paket berisi
       `#cgo LDFLAGS: -mmacosx-version-min=10.13` yang berubah dari `minos 11.0` menjadi `14.0` begitu flag
-      environment dipasang. Angka 14 dipilih karena ia target terendah yang link bersih
-      (13.0 → 49 warning, 11.0 → 50); Wails mendukung 12.0 tapi itu di bawah lantai
-      kode engine, dan tidak ada mesin 12/13 di sini untuk membuktikannya. Konsekuensi yang harus ikut ke CI:
+      environment dipasang. Angka 14 dipilih karena ia target terendah yang link bersih (13.0 → 49 warning,
+      11.0 → 50); Wails mendukung 12.0 tapi itu di bawah lantai kode engine, dan tidak ada mesin 12/13 di sini
+      untuk membuktikannya. Konsekuensi yang harus ikut ke CI:
       build tanpa pin **tidak bisa direproduksi** (`minos` mengikuti SDK runner, jadi runner macOS 15 akan
       menerbitkan biner yang menolak jalan di Sonoma) — langkah macos wajib menyetel pin dan men-assert
       `otool -l` terhadap angka yang diiklankan.
+- [ ] **Artefak aplikasi macOS belum ada — yang ada baru biner.** `go build .` menghasilkan Mach-O 62 MiB
+      (UI ter-embed, engine jalan, bundel offline terbukti), tapi `wails3 build` hari ini berhenti di
+      `ERROR task: No Taskfile found at "/Users/Go/muara.bi-desktop"`: skeleton M0 dirakit tangan dan tidak
+      pernah punya `build/darwin/Taskfile.yml` (Wails v3 memakai `task` sebagai driver build/package-nya, dan
+      `task` juga belum terpasang di mesin ini). Dua hal yang harus ikut dibuka di sana: (a) lantai macOS 14
+      yang sudah kita tetapkan **harus tertulis di `Info.plist` (`LSMinimumSystemVersion`)** — `minos` di
+      Mach-O tidak ditegakkan oleh Finder/Gatekeeper, jadi tanpa kunci itu produk masih bisa di-double-click di
+      macOS 12 dan gagal saat runtime; (b) Taskfile bawaan Wails mem-pin `-mmacosx-version-min=12.0`, jadi ia
+      harus ditimpa ke 14.0 sesuai §13, bukan dipakai apa adanya. Ini pekerjaan M6 (signing + notarization +
+      dmg), bukan blocker M0 — tapi exit criteria M0 ("installer dev berjalan di Windows dan macOS") baru bisa
+      dinyatakan lewat artefak itu, bukan lewat `go build`.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
       query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
       dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas
