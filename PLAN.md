@@ -127,11 +127,26 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       tes, bukan run manual: `TestEmbeddedViteBuildIsServed`. Urutan build untuk CI: **`npm run build`
       sebelum `go build`** (dist di-gitignore → `go:embed` gagal tanpa itu).
 - [ ] Satu binding memanggil engine dan `SELECT` nyata dari Postgres tampil di grid — **di Windows**.
-- [ ] Tiga pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi:
+- [ ] Empat pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi (tiga dari
+      checklist awal; WebView2 ditambahkan 2026-11-01 karena BRD tidak pernah menyebutnya):
   - [ ] go-duckdb v1.8.5 menyediakan `libduckdb.a` untuk windows/amd64? ABI-nya cocok dengan mingw-w64?
+        **Sudah terjawab separuh dari isi modulnya (dibaca 2026-11-01 di cache mesin ini):**
+        `deps/windows_amd64/libduckdb.a` **ada** (75 MB) dan `cgo_static.go:4` memasangkan build tag
+        `(windows && amd64)` dengan `#cgo windows,amd64 LDFLAGS: -lws2_32 -lwsock32 -lrstrtmgr -lstdc++ -lm
+        --static -L${SRCDIR}/deps/windows_amd64`. Bentuk `--static` + `-lstdc++` itu **hanya dimengerti
+        GCC/MinGW**, jadi jawaban alatnya: **mingw-w64 wajib**, MSVC `link.exe` tidak akan bisa. Yang tersisa
+        hanyalah link nyata di Windows — arsip `.a` belum tentu kompatibel dengan build MinGW yang terpasang.
   - [ ] biner yang di-link statis bisa `LOAD` extension di Windows (Unix pakai `-extldflags=-Wl,-E`
         untuk `dlopen`; Windows tidak punya `RTLD_GLOBAL`)?
   - [ ] `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` tersedia sebagai berkas `windows_amd64`?
+        Dijawab oleh `cmd/duckdb-bundle` yang **dijalankan di Windows** (foldernya jadi
+        `v1.1.3/windows_amd64`), bukan oleh asumsi dari OS lain.
+  - [ ] **WebView2** — pertanyaan keempat yang belum pernah ditulis di BRD/PLAN: Wails di Windows tidak
+        merender sendiri, ia memakai WebView2 Runtime. Di Windows 11 umumnya sudah ada, di Windows 10 belum
+        tentu. Yang harus dipastikan di mesin Windows: versi runtime yang terpasang, apakah aplikasi jalan tanpanya,
+        dan apa yang dilakukan installer kalau runtime hilang (unduh Evergreen atau tolak install).
+        Ini ikut menentukan **lantai Windows produk** (10 vs 11) — pertanyaan yang sama seperti lantai macOS
+        yang baru ditutup 2026-11-01 ([docs/engine-map.md](docs/engine-map.md) §13).
 - [ ] Extension dibundle dan `extension_directory` diarahkan ke folder aplikasi — **sisi engine sudah
       menegakkannya** (2026-11-01: `INSTALL` dilompati + autoinstall `false`, dibuktikan gagal cepat dan
       folder tetap kosong). **darwin/arm64 sudah terbukti positif** (2026-11-01): 103 MB berkas

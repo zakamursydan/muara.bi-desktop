@@ -9,6 +9,60 @@ Tolong baca PLAN.md, docs/brd-review.md, docs/engine-map.md, dan PROGRESS.md. BR
 Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 ```
 
+### Versi prompt untuk mesin Windows (2026-11-01)
+
+Tempel ini di sesi pertama di Windows — isinya supaya dia tidak mengulang pengukuran yang sudah selesai
+dan langsung jatuh ke empat pertanyaan yang memang hanya bisa dijawab di sana:
+
+```
+Saya pindah ke mesin Windows untuk mengerjakan spike M0 muara.bi Desktop.
+Baca dulu: PLAN.md (M0), docs/engine-map.md §12-§13, PROGRESS.md §3 dan §4.
+
+Kondisi mesin ini: Windows, repo ada di path yang kutulis di bawah. Engine TIDAK boleh disalin —
+desktop memakai `replace muara.bi/engine => ../muara.bi-service/backend/engine`, jadi kedua repo
+harus berada sebagai folder sepupu dengan nama persis itu.
+
+Alat yang harus ada sebelum mulai (kalau belum, bilang dulu, jangan kerjakan sambil menebak):
+- Go 1.27.1 ke atas — `go.mod` minta versi itu dan `GOTOOLCHAIN=auto` akan mengunduhnya (butuh jaringan sekali).
+- gcc dari **mingw-w64** di PATH (`gcc --version` harus keluar). Tanpa ini CGO mati dan tidak ada
+  DuckDB sama sekali. MSVC tidak dipakai.
+- Node + npm untuk `npm ci && npm run build` di `frontend/`. Urutannya wajib: `frontend/dist`
+  di-gitignore dan `go:embed` membutuhkannya lebih dulu, jadi `go build` tanpa `npm run build` gagal
+  dengan `pattern all:frontend/dist: no matching files found`.
+- Di PowerShell set env-nya `$env:CGO_ENABLED="1"` (bukan `CGO_ENABLED=1 go build` seperti di shell unix).
+
+Kerjakan empat pertanyaan Windows di PLAN.md M0, satu per satu, masing-masing dengan bukti:
+1. Link `cmd/spike` dengan CGO. Asumsi yang sudah terbukti dari modul: go-duckdb v1.8.5 punya
+   `deps/windows_amd64/libduckdb.a` dan direktif cgo-nya memakai `--static -lstdc++`, jadi
+   yang dibutuhkan adalah gcc mingw-w64, bukan MSVC. Kalau link gagal, catat error pertamanya.
+2. Bisa tidak biner hasil link itu `LOAD` extension dari folder aplikasi? Buat bundelnya di mesin ini
+   (butuh jaringan sekali), dari folder `backend` repo web, dengan path **absolut** ke repo desktop:
+   `go run ./cmd/duckdb-bundle -out <path-repo-desktop>\build\duckdb-extensions`
+   (foldernya harus jadi `v1.1.3\windows_amd64`; kalau berkasnya tidak ada, itu jawaban untuk
+   pertanyaan 3 dan jadi titik putar ke Tauri/sidecar sesuai exit criteria M0).
+3. Buktikan bundel cukup tanpa jaringan: arahkan `DUCKDB_EXTENSION_DIRECTORY` ke folder tadi lalu
+   jalankan spike dengan DSN Postgres lewat env, bukan yang di-hardcode. Sertakan juga hasil
+   `go test ./internal/meminfo -run TestTotalReportsASanePhysicalSize` — pembaca RAM Windows
+   (`kernel32!GlobalMemoryStatusEx`) sudah ditulis dan sudah di-cross-compile, tapi belum pernah
+   dijalankan di mesin Windows sungguhan.
+4. WebView2: pastikan **runtime**-nya ada, bukan browser Edge-nya — yang dicari folder
+   `C:\Program Files (x86)\Microsoft\EdgeWebView\Application` (atau kunci registri
+   `HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`).
+   Windows 11 umumnya sudah punya, Windows 10 belum tentu. Catat versinya, jalankan aplikasi tanpa runtime
+   kalau bisa diuji, dan putuskan apa yang dilakukan installer kalau hilang (unduh Evergreen atau tolak
+   install). Ini ikut menentukan lantai Windows produk (10 vs 11).
+
+Aturan yang tetap berlaku: tulis hasil dalam bahasa Indonesia mengikuti gaya bullet yang sudah ada,
+tick checklist PLAN.md, commit tapi JANGAN push tanpa kubilang, jangan pernah commit rahasia/`.env`/
+`.muara`/`*.duckdb_extension`, engine tidak boleh tahu soal tenant, dan `MACOSX_DEPLOYMENT_TARGET` /
+pin `CGO_LDFLAGS=-mmacosx-version-min=14.0` itu urusan macOS — jangan dipakai di sini.
+```
+
+**Sebelum pindah, dua hal yang hanya bisa kamu lakukan:** (a) repo desktop ini **belum punya remote**, jadi
+bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, tetap sebagai folder sepupu —
+`.tools/` di-gitignore, jadi CLI `wails3` harus dipasang ulang di Windows), atau buat dulu remote GitHub-nya;
+(b) `gh` tidak terpasang di mesin ini, jadi aku tidak bisa membuatkan repo itu sendiri.
+
 ## 2. Sumber kebenaran
 
 | Dokumen | Isi | Catatan |
