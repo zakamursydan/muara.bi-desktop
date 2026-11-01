@@ -170,10 +170,45 @@ implementasi desktop tidak perlu mengulang policing-nya:
   **bukan** lewat teks SQL. `QueryResult` membawa `RowLimit`, `Truncated`, `TruncatedBy`
   (`row_limit` · `source_cap`) dan `CappedSources`; prioritas `row_limit` di atas `source_cap`.
   Kalau desktop memanggil `ApplyLimit` sendiri sebelum `Query`, probe-nya mati dan semua hasil tampak utuh.
-- `GuardrailConfig.MaxMemory` (`"2GB"` default, `duckdb.DefaultMaxMemory`) — divalidasi `NormalizeMaxMemory`
+- `GuardrailConfig.MaxMemory` (`duckdb.DefaultMaxMemory = "2GiB"` bila kosong) — divalidasi `NormalizeMaxMemory`
   di `NewEngine`, sehingga nilai salah mengembalikan error alih-alih budget lama. Desktop memasok ini dari
   settings (FR-15); web dari `DUCKDB_MAX_MEMORY`.
   **Unit yang diterima (diprobe 2026-11-01): `B|KB|MB|GB|TB` desimal *dan* `KiB|MiB|GiB|TiB` biner**,
   angka wajib + tanpa spasi. Artinya FR-15 cukup menulis `GiB` dan mengirimnya utuh — tidak ada konversi,
   tidak ada label yang bohong. Yang ditolak engine walau DuckDB menerima: `"-1"` (tanpa batas), `"2 GB"`.
   Kalau `max_memory` tidak di-SET sama sekali DuckDB mengambil **80% RAM**, jadi nilai harus selalu eksplisit.
+
+## 8. Spike M0 (2026-11-01) — engine hidup di modul kedua, dan bundel extension ternyata tidak offline
+
+Bukti pertama bahwa janji M1 berlaku: `muara.bi-desktop/go.mod` berisi
+`replace muara.bi/engine => ../muara.bi-service/backend/engine` dan `cmd/spike/` memanggil engine
+tanpa satu baris pun kode web. Yang terukur di mesin ini:
+
+- `SELECT 1, current_setting('max_memory'), current_setting('threads')` → `2.0 GiB` dan `threads: 2`.
+  Spike sengaja **tidak** mengisi `MaxMemory`, jadi angka ini membuktikan default engine — bukan config
+  web — yang sampai ke DuckDB.
+- `CGO_ENABLED=0 go build` tetap berhasil, dan menjalankan binary-nya menolak dengan
+  `duckdb engine unavailable: binary built without CGO (rebuild with CGO_ENABLED=1 and a C toolchain)`
+  (exit 1). Perilaku M1.2 berlaku di konsumen kedua.
+- Sumber identifier untuk probe: `sqlident.IsPlain` dipakai untuk memvalidasi alias dan nama tabel;
+  engine **tidak** mengekspor pembungkus identifier (`quoteIdent` tidak berhuruf kapital di
+  `session_cgo.go`), jadi pemanggil hanya perlu bentuk "tolak/terima".
+
+Temuan yang mengubah rencana bundel M0: `GuardrailConfig.ExtensionDirectory` alone tidak menegakkan
+offline. Dengan direktori bundle yang **kosong**, `AttachPostgres` tetap berhasil — DuckDB mengunduh
+`v1.1.3/osx_arm64/postgres_scanner.duckdb_extension` ke folder yang seharusnya berisi bawaan aplikasi.
+Dua penyebab: `autoinstall_known_extensions`/`autoload_known_extensions` default true, dan `loadExtension`
+mengirim `INSTALL` apa pun setting-nya. Sejak 2026-11-01 engine men-set keduanya `false` **dan** melompati
+`INSTALL` selama `ExtensionDirectory` terisi, sehingga:
+
+| Kondisi | Perilaku engine hari ini |
+|---|---|
+| Tanpa `ExtensionDirectory` (dev web) | `INSTALL` best effort, autoinstall aktif — masih bisa unduh |
+| `ExtensionDirectory` terisi, file ada | `LOAD` dari bundle, nol jaringan |
+| `ExtensionDirectory` terisi, file hilang | gagal cepat: `duckdb extension "postgres" is unavailable: IO Error: Extension ... not found` |
+
+Ditegaskan `TestBundledExtensionDirectoryStaysOffline` (direktori harus tetap kosong setelah gagal).
+Artinya untuk M0: berkas extension wajib benar-benar ter-copy ke folder aplikasi, dan **pesan errornya
+harus diterjemahkan UI** ("connector belum terpasang"), bukan diteruskan mentah — DuckDB menutupnya dengan
+`Install it first using "INSTALL postgres"`, saran yang di desktop justru salah.
+

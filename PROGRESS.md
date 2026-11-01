@@ -26,7 +26,7 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   `muara.bi/engine`)**, **M1.4 (kontrak `QueryResult.truncated`)** dan **M1.5 (`max_memory` jadi
   konfigurasi)** tuntas, dan exit criterion terakhir dibuktikan `make image-core` — image web benar-benar
   dibangun dari engine di `muara.bi-service/backend/engine/` (lewat `replace`), bukan dari salinan kedua.
-  Belum ada `go.mod` desktop, belum ada skeleton Wails: itu isi **M0**, fase yang sekarang boleh dimulai.
+  Belum ada skeleton Wails; **spike M0 sudah dimulai 2026-11-01** dengan modul Go pertama di repo ini.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -70,6 +70,21 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   fallback `docker-compose.yml`) supaya dua produk membaca angka yang sama dengan arti yang sama — efeknya
   plafon compose naik 7% jadi 2 × 2,15 GB, yang tetap aman karena DuckDB spill ke disk, bukan mengalokasikan
   plafonnya.
+- **Spike M0 dimulai (2026-11-01) — janji M1 diuji dari sisi konsumen kedua:** `go.mod` desktop
+  (`module muara.bi/desktop`) memakai engine lewat `replace muara.bi/engine =>
+  ../muara.bi-service/backend/engine`, dan `cmd/spike/` memanggilnya tanpa satu baris kode web pun.
+  Terukur di mesin ini: default engine sampai ke DuckDB dari modul non-web (`max_memory` → `2.0 GiB`,
+  `threads` → 2), dan build `CGO_ENABLED=0` menolak jalan dengan pesan M1.2
+  (`duckdb engine unavailable: binary built without CGO`, exit 1) — jadi fail-fast itu milik engine,
+  bukan tambalan web. **Temuan yang mengubah rencana bundel:** `ExtensionDirectory` saja tidak menegakkan
+  offline — dengan folder bundle kosong, `AttachPostgres` **tetap berhasil** karena DuckDB mengunduh
+  `postgres_scanner` ke folder tersebut (sebab `autoinstall_known_extensions` default true dan
+  `loadExtension` selalu mengirim `INSTALL`). Diperbaiki di engine: kedua setting di-set `false` dan
+  `INSTALL` dilompati selama bundle terkonfigurasi, ditambah
+  `TestBundledExtensionDirectoryStaysOffline` (gagal cepat + folder harus tetap kosong). Implikasi M0:
+  berkas extension wajib benar-benar ikut ter-copy, dan pesan "extension ... is unavailable" harus
+  diterjemahkan UI — saran DuckDB `Install it first using "INSTALL postgres"` menyesatkan di desktop.
+  Detail di [docs/engine-map.md](docs/engine-map.md) §8.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -155,12 +170,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 
 ## 4. Task berikutnya (urutan)
 
-1. Spike **M0** (Wails + CI per-OS) — M1 sudah punya bukti lengkap dan default memori sudah diputuskan,
-   jadi tidak ada lagi yang menahan. Repo desktop ikut memakai engine lewat
-   `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. Dua hal yang harus
-   dijawab M0 untuk profil mesin: **cara membaca RAM total per OS** (dibutuhkan default
-   `min(4GiB, RAM/4)`) dan apakah `threads` perlu ikut profil — sekarang masih hardcoded 2
-   (`engine/duckdb/session_cgo.go`, `NewEngine`).
+1. Lanjutkan spike **M0**. Yang sudah terbukti: modul desktop mengonsumsi engine lewat
+   `replace muara.bi/engine => ../muara.bi-service/backend/engine` (bukan salinan), default memorinya
+   sampai ke DuckDB, CGO-off menolak dengan jelas, dan bundle sekarang benar-benar offline.
+   Yang belum: skeleton **Wails v3** (kunci versinya, baca lisensi dari tag itu) + React/Vite; **cara
+   membaca RAM total per OS** (dibutuhkan default `min(4GiB, RAM/4)`); bundel extension + verifikasi
+   dengan jaringan **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; dan apakah `threads`
+   perlu ikut profil — sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
 2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
    sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
@@ -176,6 +192,12 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   meminta `go 1.27.1`) — artinya build di mesin ini butuh cache itu; offline tanpa cache build gagal
   dengan pesan "go.mod requires go >= 1.27.1". DuckDB linux/darwin sudah terverifikasi
   di produk web; **Windows belum pernah disentuh sama sekali** — M0 adalah pertama kalinya.
+- Cara menjalankan spike: `CGO_ENABLED=1 go build -o /tmp/muara-spike ./cmd/spike` lalu
+  `MUARA_SPIKE_PG_DSN="host=localhost port=5435 user=sample_user password=sample_password
+  dbname=sample_ecommerce sslmode=disable" /tmp/muara-spike`. DSN **tidak** pernah di-hardcode di
+  dalam kode — flag/env saja, supaya kredensial sample tidak ikut ter-commit. Fixture di stack user
+  hari ini: `sample_ecommerce` punya satu tabel (`orders`, 6 baris), jadi `tables:1` adalah angka yang
+  benar, bukan tanda koneksi gagal.
 - BRD §18 menyuruh membaca `muara-bi-desktop-wireframes.canvas.tsx`, tapi file itu tidak ada di
   repo web, di repo ini, maupun di `Downloads`. Sebagai gantinya sudah dibuat wireframe sendiri:
   [docs/wireframe.html](docs/wireframe.html) — 10 layar §12.3, token warna §12.2, toggle dark mode,
@@ -183,4 +205,5 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   (layar S4a: "Pin ke proyek lain", bukan duplikasi).
 - Keputusan user 2026-10-30: **opsi A disetujui** — repo web boleh disentuh satu commit untuk
   `git mv` engine + ganti import path (M1.3).
-- Repo ini sudah `git init` tapi belum ada commit dan belum ada remote.
+- Repo ini sudah `git init` dengan 10 commit dokumen (per 2026-11-01) dan **belum ada remote**;
+  `cmd/spike/`, `go.mod` dan `go.sum` adalah kode pertama di repo ini.

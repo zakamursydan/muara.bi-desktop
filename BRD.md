@@ -336,7 +336,10 @@ sebelum satu fitur pun ditulis. Exit criteria lengkap ada di [PLAN.md](PLAN.md).
 DuckDB memuat driver ATTACH (`postgres_scanner`, `mysql_scanner`, `sqlite_scanner`) sebagai extension yang normalnya
 diunduh saat pertama dipakai. Produk ini offline, jadi extension ikut ter-bundle dan `extension_directory` diarahkan
 ke folder aplikasi — sudah terverifikasi di web untuk **linux (amd64/arm64) dan darwin/arm64** lewat
-`cmd/duckdb-bundle` + probe `--network none`. Yang belum pernah diverifikasi sama sekali:
+`cmd/duckdb-bundle` + probe `--network none`. Perlu diperjelas (spike M0 2026-11-01): probe itu membuktikan
+**berkas yang ada** termuat tanpa jaringan, bukan bahwa yang **tidak ada** tidak diunduh — selama ini
+DuckDB justru mengunduh extension yang hilang ke folder bundle, dan engine sekarang sudah menutup celah itu
+(`INSTALL` dilompati + autoinstall dimatikan saat `extension_directory` terisi). Yang belum pernah diverifikasi sama sekali:
 
 1. Apakah `go-duckdb` v1.8.5 menyediakan pustaka statis untuk `windows/amd64`, dan ABI-nya cocok dengan mingw-w64?
 2. Web mengandalkan `-extldflags=-Wl,-E` agar ekstensi yang di-`dlopen` melihat simbol DuckDB — itu flag **ELF/Unix**.

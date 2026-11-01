@@ -111,6 +111,10 @@ DuckDB/exporter/ssh/ai/builder; kontrak §7.3 & §7.4 ditegakkan di engine; `max
 
 Keluaran: jawaban ya/tidak untuk "Wails v3 × CGO × DuckDB asli × offline di tiga OS", dengan CI.
 
+*Sudah tercapai 2026-11-01 (spike `cmd/spike/`, belum app): modul desktop memakai engine lewat `replace`,
+default `2GiB` sampai ke DuckDB, dan CGO-off menolak start. Bundel extension sekarang ditegakkan engine —
+lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya berarti "terbukti di spike".*
+
 - [ ] Skeleton Wails v3 (versi dikunci, `LICENSE` di tag itu dibaca, bukan dari branch utama) + React/Vite.
 - [ ] Satu binding memanggil engine dan `SELECT` nyata dari Postgres tampil di grid — **di Windows**.
 - [ ] Tiga pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi:
@@ -118,11 +122,15 @@ Keluaran: jawaban ya/tidak untuk "Wails v3 × CGO × DuckDB asli × offline di t
   - [ ] biner yang di-link statis bisa `LOAD` extension di Windows (Unix pakai `-extldflags=-Wl,-E`
         untuk `dlopen`; Windows tidak punya `RTLD_GLOBAL`)?
   - [ ] `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` tersedia sebagai berkas `windows_amd64`?
-- [ ] Extension dibundle dan `extension_directory` diarahkan ke folder aplikasi; diverifikasi dengan
-      jaringan **dimatikan** di ketiga OS.
+- [x] Extension dibundle dan `extension_directory` diarahkan ke folder aplikasi — **sisi engine sudah
+      menegakkannya** (2026-11-01: `INSTALL` dilompati + autoinstall `false`, dibuktikan gagal cepat dan
+      folder tetap kosong). Masih kurang: berkasnya benar-benar ada di folder aplikasi dan diverifikasi
+      dengan jaringan **dimatikan** di ketiga OS.
 - [ ] CI per-OS (macOS/Linux/Windows). Bundel extension **tidak** di-commit dari satu mesin:
       `cmd/duckdb-bundle` dijalankan per-OS karena folder hasilnya per-platform.
-- [ ] Bukti negatif: matikan CGO → aplikasi menolak start dengan pesan jelas (bukan menampilkan kosong).
+- [x] Bukti negatif: matikan CGO → menolak start dengan pesan jelas (`duckdb engine unavailable: binary
+      built without CGO…`, exit 1) — tercapai di spike; di app nanti pesan yang sama harus muncul di UI,
+      bukan sebagai window kosong.
 - [ ] **Cara membaca RAM total di Windows/macOS/Linux.** Jawabannya dibutuhkan untuk default
       `max_memory` = `min(4GiB, RAM/4)` (BRD §15 butir 6); selama belum ada, fallback `2GiB`. Jangan
       menambah dependensi (mis. gopsutil) sebelum terbukti bacaan per-OS yang polos tidak cukup — ini
