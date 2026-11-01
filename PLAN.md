@@ -157,7 +157,14 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       folder tetap kosong). **darwin/arm64 sudah terbukti positif** (2026-11-01): 103 MB berkas
       `v1.1.3/osx_arm64/*_scanner.duckdb_extension` hasil `cmd/duckdb-bundle`, ATTACH Postgres jalan dengan
       folder di-`chmod a-w` **dan** `HOME` dipindah ke folder kosong yang tetap 0 byte — jadi tidak ada tempat
-      untuk mengunduh dan tidak ada kebutuhan mengunduh. **Kurang: linux & windows**, dan keduanya lebih
+      untuk mengunduh dan tidak ada kebutuhan mengunduh. **2026-11-01: arahannya juga sudah jadi kode**, bukan
+      lagi env developer — `bundledExtensionDir()` (`query_service.go`) mencari
+      `Contents/Resources/duckdb/extensions` relatif ke biner, jadi `.app` yang dijalankan dari Finder membawa
+      bundelnya sendiri tanpa satu pun variabel lingkungan, dan `DUCKDB_EXTENSION_DIRECTORY` tetap menang untuk
+      build scratch; keduanya tertutup tes (`TestExtensionDirIsFoundFromAppBundleLayout`,
+      `TestExtensionDirEnvOverridesTheBundle`). Bukti runtime: `lsof` atas proses aplikasi yang terpasang
+      memetakan `.../Resources/duckdb/extensions/v1.1.3/osx_arm64/postgres_scanner.duckdb_extension`.
+      **Kurang: linux & windows**, dan keduanya lebih
       mudah dibuktikan di CI daripada di mesin user (`--network none` untuk linux, runner windows untuk
       windows). macOS memang yang paling sulit, jadi jangan pakai kemacetan di sini sebagai alasan menunda
       dua OS lainnya.
@@ -213,17 +220,24 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       build tanpa pin **tidak bisa direproduksi** (`minos` mengikuti SDK runner, jadi runner macOS 15 akan
       menerbitkan biner yang menolak jalan di Sonoma) — langkah macos wajib menyetel pin dan men-assert
       `otool -l` terhadap angka yang diiklankan.
-- [ ] **Artefak aplikasi macOS belum ada — yang ada baru biner.** `go build .` menghasilkan Mach-O 62 MiB
-      (UI ter-embed, engine jalan, bundel offline terbukti), tapi `wails3 build` hari ini berhenti di
-      `ERROR task: No Taskfile found at "/Users/Go/muara.bi-desktop"`: skeleton M0 dirakit tangan dan tidak
-      pernah punya `build/darwin/Taskfile.yml` (Wails v3 memakai `task` sebagai driver build/package-nya, dan
-      `task` juga belum terpasang di mesin ini). Dua hal yang harus ikut dibuka di sana: (a) lantai macOS 14
-      yang sudah kita tetapkan **harus tertulis di `Info.plist` (`LSMinimumSystemVersion`)** — `minos` di
-      Mach-O tidak ditegakkan oleh Finder/Gatekeeper, jadi tanpa kunci itu produk masih bisa di-double-click di
-      macOS 12 dan gagal saat runtime; (b) Taskfile bawaan Wails mem-pin `-mmacosx-version-min=12.0`, jadi ia
-      harus ditimpa ke 14.0 sesuai §13, bukan dipakai apa adanya. Ini pekerjaan M6 (signing + notarization +
-      dmg), bukan blocker M0 — tapi exit criteria M0 ("installer dev berjalan di Windows dan macOS") baru bisa
-      dinyatakan lewat artefak itu, bukan lewat `go build`.
+- [x] **Artefak aplikasi macOS berdiri dan terpasang di mesin ini (2026-11-01).** `wails3 build` tetap berhenti
+      di `ERROR task: No Taskfile found at "/Users/Go/muara.bi-desktop"` — skeleton M0 tidak pernah punya
+      `build/darwin/Taskfile.yml` dan `task` tidak dipasang (disk 95% penuh, dan menambah toolchain untuk satu
+      spike bukan tukar yang adil), jadi `.app` dirakit oleh skrip deterministik sendiri:
+      `sh build/macos-app.sh <folder-bundle>` → `build/bin/muara-bi.app` **149 MB**, `minos=14.0`, tiga
+      `*_scanner.duckdb_extension` ikut di dalam, signature-nya ad-hoc. Yang dulu disebut "harus ikut dibuka di
+      sana" keduanya selesai: (a) `Info.plist` sekarang menulis **`LSMinimumSystemVersion = 14.0`** — kunci yang
+      sebenarnya ditegakkan Finder/Gatekeeper, karena `minos` di Mach-O tidak dibaca oleh siapa pun, jadi lantai
+      macOS 14 kini berlaku dan bukan cuma diumumkan; (b) pin 12.0 milik Taskfile Wails tidak jadi soal karena
+      Taskfile-nya tidak dipakai — yang dipakai `CGO_LDFLAGS="-mmacosx-version-min=14.0"` di dalam skrip (§13),
+      dan skripnya **membatalkan build** kalau `otool -l` tidak membalas 14.0, jadi assertion yang tadinya
+      dijadwalkan untuk CI sudah ada di recipes lokal. `plutil -lint` ikut dijalankan atas plist-nya.
+      Terpasang di `/Applications/muara-bi.app` dan berjalan: UI dimuat dari biner ter-embed
+      (`/assets/index-*.css`, `/assets/index-*.js`) dan `Status()` menjawab dari DuckDB sungguhan. Sisa M6
+      tidak berubah: Developer ID + notarization + dmg (adhoc tidak tebus Gatekeeper untuk distribusi), dan
+      `AttachSample` ke sample Postgres lokal masih gagal di **pihak server**
+      (`FATAL: could not open file "global/pg_filenode.map": I/O error`, stack user + disk 94%) — aplikasi
+      sudah memetakan connector-nya sebelum kegagalan itu, jadi bukan bug desktop.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
       query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
       dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas

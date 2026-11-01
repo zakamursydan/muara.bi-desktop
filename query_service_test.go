@@ -4,6 +4,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"muara.bi/engine/duckdb"
@@ -80,5 +82,35 @@ func TestSpikeAttachNeedsDSN(t *testing.T) {
 
 	if err := service.AttachSample(); err == nil {
 		t.Fatal("attach succeeded without a DSN")
+	}
+}
+
+// The offline promise only holds if an installed app actually reads the bundle
+// from inside itself: a double-click from Finder carries no shell environment.
+// Path layout is what makes that work, so it is asserted without a GUI — and a
+// bare `go run .` must keep DuckDB's own default rather than a missing folder.
+func TestExtensionDirIsFoundFromAppBundleLayout(t *testing.T) {
+	root := t.TempDir()
+	app := filepath.Join(root, "muara-bi.app")
+	exe := filepath.Join(app, "Contents", "MacOS", "muara-bi")
+	bundle := filepath.Join(app, "Contents", "Resources", "duckdb", "extensions")
+	if err := os.MkdirAll(bundle, 0o755); err != nil {
+		t.Fatalf("make bundle: %v", err)
+	}
+	if got := extensionDirFromBinary(exe); got != bundle {
+		t.Errorf("bundle dir = %q, want %q", got, bundle)
+	}
+
+	// Same executable, but the folder was never packaged.
+	other := filepath.Join(root, "loose", "Contents", "MacOS", "muara-bi")
+	if got := extensionDirFromBinary(other); got != "" {
+		t.Errorf("missing bundle resolved to %q, want empty", got)
+	}
+}
+
+func TestExtensionDirEnvOverridesTheBundle(t *testing.T) {
+	t.Setenv(extensionDirEnv, "/tmp/scratch-bundle")
+	if got := bundledExtensionDir(); got != "/tmp/scratch-bundle" {
+		t.Errorf("bundledExtensionDir() = %q, want the environment to win", got)
 	}
 }

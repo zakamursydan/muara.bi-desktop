@@ -387,5 +387,15 @@ gerbang — assert `minos` sama dengan angka yang diiklankan. Warning `built for
 gerbang: ia juga muncul dari `go.o` buatan toolchain Go itu sendiri (terbukti pada program cgo tiga baris),
 jadi ia bising bahkan ketika tidak ada yang salah.
 
+**`minos` bukan yang ditegakkan — `LSMinimumSystemVersion` yang itu.** Bedanya baru terlihat waktu artefak
+`.app` dirakit (2026-11-01, `build/macos-app.sh`): Mach-O dengan `minos 14.0` tetap bisa di-double-click di
+macOS 12 dan baru gagal saat runtime, karena Finder dan Gatekeeper membaca kunci `LSMinimumSystemVersion` di
+`Info.plist`, bukan load command build version. Jadi angka §13 harus ditulis **dua kali** — sekali sebagai flag
+link, sekali sebagai plist — dan `.app` hari ini melakukan keduanya (`LSMinimumSystemVersion => 14.0`,
+diverifikasi `plutil -lint` dan `defaults read`). Konsekuensi yang belum selesai ikut tercatat di sana:
+`codesign --sign -` menghasilkan tanda tangan ad-hoc, yang cukup untuk menjalankan build di mesin pembuatnya
+tetapi tidak akan tebus Gatekeeper di mesin orang lain; Developer ID + notarization + dmg tetap pekerjaan M6.
+
+
 
 

@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"muara.bi/engine/duckdb"
 	"muara.bi/engine/sqlident"
 )
+
+// extensionDirEnv is how a developer points a build at a scratch bundle.
+const extensionDirEnv = "DUCKDB_EXTENSION_DIRECTORY"
 
 // QueryService is the only bridge between the webview and the engine: the UI
 // never sees DuckDB, only these methods.
@@ -33,7 +37,7 @@ func NewQueryService() (*QueryService, error) {
 		StatementTimeout: 15 * time.Second,
 		// MaxMemory is intentionally empty: the spike must show that the engine
 		// default reaches DuckDB on its own, which is what FR-15 will override.
-		ExtensionDirectory: os.Getenv("DUCKDB_EXTENSION_DIRECTORY"),
+		ExtensionDirectory: bundledExtensionDir(),
 	}
 	engine, err := duckdb.NewEngine(cfg)
 	if err != nil {
@@ -99,6 +103,37 @@ func (s *QueryService) Run(sql string) (*duckdb.QueryResult, error) {
 		return nil, err
 	}
 	return s.session.Query(context.Background(), sql, duckdb.QueryOptions{MaxRows: duckdb.DefaultMaxRows})
+}
+
+// bundledExtensionDir is how an installed .app finds the connector bundle that
+// ships inside it. A double-click from Finder carries no shell environment, so
+// relying on the variable alone would silently leave the packaged app with
+// autoinstall enabled and no offline promise.
+func bundledExtensionDir() string {
+	if env := os.Getenv(extensionDirEnv); env != "" {
+		return env
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return ""
+	}
+	return extensionDirFromBinary(resolved)
+}
+
+// extensionDirFromBinary maps <App>/Contents/MacOS/<exe> to
+// <App>/Contents/Resources/duckdb/extensions and answers "" when that folder
+// is absent, so a plain `go run .` keeps DuckDB's own default directory.
+func extensionDirFromBinary(exePath string) string {
+	contents := filepath.Dir(filepath.Dir(exePath))
+	candidate := filepath.Join(contents, "Resources", "duckdb", "extensions")
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+	return ""
 }
 
 func asText(v any) string {

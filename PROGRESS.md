@@ -266,6 +266,31 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   dibuktikan lebih kuat di CI (container `--network none` untuk linux, runner windows-latest untuk windows).
   macOS adalah OS yang paling sulit dibuktikan "tidak ada jaringan" tanpa sudo, jadi bukti di atas adalah
   bentuk terkuat yang bisa dicapai dari mesin user.
+- **`.app` macOS dibangun dan dipasang (2026-11-01, permintaan user: "build yang mac dulu, install di mac"):**
+  `wails3 build` tidak bisa dipakai — ia berhenti di `ERROR task: No Taskfile found` karena skeleton M0 tidak
+  pernah punya `build/darwin/Taskfile.yml`, dan `task` tidak dipasang (disk 95% penuh). Gantinya skrip sendiri,
+  `build/macos-app.sh`, yang mengerjakan tiga hal yang selama ini cuma jadi wacana di PLAN: (1) build dengan
+  `CGO_LDFLAGS="-mmacosx-version-min=14.0"` lalu **membatalkan diri** kalau `otool -l` tidak membalas
+  `minos 14.0` — assertion yang dijadwalkan untuk CI sudah aktif di level resep; (2) menulis `Info.plist` dengan
+  **`LSMinimumSystemVersion = 14.0`**, kunci yang sebenarnya ditegakkan Finder/Gatekeeper (`minos` di Mach-O tidak
+  dibaca siapa pun, jadi lantai macOS 14 baru benar-benar berlaku sekarang, bukan cuma diumumkan) — divalidasi
+  `plutil -lint`; (3) menyalin folder bundel extension ke `Contents/Resources/duckdb/extensions` dan
+  `codesign --sign -` (ad-hoc). Hasil: `build/bin/muara-bi.app` **149 MB** = biner 62 MiB + bundel 103 MB −
+  overlap, terpasang di `/Applications/muara-bi.app`, UI dimuat dari `frontend/dist` ter-embed, `Status()`
+  menjawab dari DuckDB. Konsekuensi kode yang harus ikut: `query_service.go` sekarang punya
+  `bundledExtensionDir()` → `extensionDirFromBinary()` yang menemukan bundel **relatif ke biner** (dua level di
+  atas executable, lalu `Resources/duckdb/extensions`), dengan `DUCKDB_EXTENSION_DIRECTORY` tetap menang untuk
+  build scratch — jadi aplikasi hasil double-click di Finder membawa connector-nya tanpa variabel lingkungan apa
+  pun, yang juga menjawab kenapa `AttachSample` hanya bisa diuji dari shell: DSN-nya sengaja lewat env, bukan
+  dari UI, dan path M4-nya adalah keychain. Dua tes baru (`TestExtensionDirIsFoundFromAppBundleLayout` menyusun
+  struktur `.app` di `t.TempDir()` dan menolak path longgar, `TestExtensionDirEnvOverridesTheBundle`) plus suite
+  lama: `CGO_ENABLED=1 go test ./...` hijau (`muara.bi/desktop` 3,2 dtk, `internal/meminfo` 1,9 dtk), `gofmt -l`
+  bersih. **Dua hal yang terbukti dari proses yang sedang hidup:** `lsof -p <pid>` memetakan
+  `/Applications/muara-bi.app/Contents/Resources/duckdb/extensions/v1.1.3/osx_arm64/postgres_scanner.duckdb_extension`,
+  dan `Attach` gagal **setelah** itu dengan `FATAL: could not open file "global/pg_filenode.map": I/O error` —
+  jadi kegagalannya milik server Postgres sample (stack user: `muara_api`/`muara_web`/`muara_redis` unhealthy,
+  host 94% penuh), bukan milik desktop. Sisa M6 tidak berubah: Developer ID + notarization + dmg, karena ad-hoc
+  tidak tebus Gatekeeper untuk distribusi.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -365,11 +390,15 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
    Sudah terjawab 2026-11-01: **cara membaca RAM total per OS** (`internal/meminfo`, tiga OS enam GOARCH
    ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`), **bundel extension di macOS**
-   (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong), dan **minimum macOS = 14 (Sonoma)**
-   lewat pin `CGO_LDFLAGS` (temuan 4 di §3 sudah dikoreksi dan §13 engine-map menutup pertanyaannya).
+   (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong), **minimum macOS = 14 (Sonoma)**
+   lewat pin `CGO_LDFLAGS` (temuan 4 di §3 sudah dikoreksi dan §13 engine-map menutup pertanyaannya), dan
+   **artefak `.app` macOS** (`build/macos-app.sh` → `/Applications/muara-bi.app`, `LSMinimumSystemVersion`
+   tertulis, connector dimuat dari dalam bundle oleh `bundledExtensionDir()`).
    Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
-   `CGO_ENABLED=1 MUARA_SPIKE_PG_DSN="…" go run .` — klik "Attach Postgres sample" → "Jalankan query".
-   Build macOS sebaiknya memakai `CGO_LDFLAGS="-mmacosx-version-min=14.0"` (lihat §5).
+   `sh build/macos-app.sh /tmp/muara-ext` dan jalankan binernya dari shell dengan
+   `MUARA_SPIKE_PG_DSN` di-set (lihat resep §5) — klik "Attach Postgres sample" → "Jalankan query".
+   Jangan lewat langkah bundel: tanpa argumen, `.app` tetap bangun tapi `Attach` gagal karena connector tidak
+   ada, dan pesan DuckDB-nya (`Install it first using "INSTALL postgres"`) menyesatkan di desktop offline.
    Berkas extension hasil spike (`/tmp/muara-ext`, `/tmp/duckdb-bundle`) **sudah dihapus 2026-11-01** sesuai
    permintaan; untuk menjalankan langkah itu lagi, buat bundelnya lebih dulu lewat alat di repo web
    (`cd ../muara.bi-service/backend && CGO_ENABLED=1 go run ./cmd/duckdb-bundle -out <folder>`) lalu arahkan
@@ -418,6 +447,24 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   CGO_ENABLED=1 CGO_LDFLAGS="-mmacosx-version-min=14.0" go build -o bin/muara-spike .
   otool -l bin/muara-spike | grep -A4 LC_BUILD_VERSION   # harus minos 14.0
   ```
+
+  Untuk artefak aplikasi (`.app` berisi bundel connector, siap dipasang):
+
+  ```sh
+  cd ../muara.bi-service/backend && CGO_ENABLED=1 go run ./cmd/duckdb-bundle -out /tmp/muara-ext  # 103 MB, per-OS
+  cd ../../muara.bi-desktop && sh build/macos-app.sh /tmp/muara-ext   # cek minos + plutil dilakukan sendiri
+  cp -R build/bin/muara-bi.app /Applications/
+  env -u DUCKDB_EXTENSION_DIRECTORY MUARA_SPIKE_PG_DSN="host=localhost port=5435 …" \
+    /Applications/muara-bi.app/Contents/MacOS/muara-bi
+  ```
+
+  `env -u` di baris terakhir itu penting sebagai bukti, bukan kebersihan: ia menunjukkan bahwa path connector
+  berasal dari dalam `.app`, bukan dari variabel lingkungan yang tertinggal di shell (`lsof -p <pid>` mengonfirmasi
+  file yang di-map). Launch dari Finder tidak membawa `MUARA_SPIKE_PG_DSN` sama sekali — itu memang desain:
+  kredensial tidak boleh diketik ke webview, dan tempatnya di keychain baru di M4.
+  Catatan: skrip ini **bukan** pengganti jalur produksi. `wails3 build`/`package` (butuh `task`, belum dipasang)
+  tetap jalur yang benar untuk M6 karena ia ikut mengurus Developer ID, entitlements, notarization dan dmg;
+  tanda tangan ad-hoc dari `codesign --sign -` tidak akan tebus Gatekeeper di mesin orang lain.
 
   Pin `CGO_LDFLAGS` itu bukan hiasan: tanpa ia, `minos` ditulis oleh direktif Wails (11.0) atau oleh SDK mesin
   build, dan keduanya bukan angka yang boleh kita iklankan — lihat temuan 4 di §3 dan
