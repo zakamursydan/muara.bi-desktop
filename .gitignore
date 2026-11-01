@@ -18,6 +18,7 @@ wails.json.local
 keychain-test-*.db
 
 # Artefak build produk
+.tools/
 *.dmg
 *.msi
 *.exe
