@@ -184,7 +184,31 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   Yang **belum** dikerjakan: memasang angka ini ke `NewQueryService` (sengaja masih kosong supaya spike terus
   membuktikan default engine — pemasangan adalah pekerjaan pengaturan FR-15 di M4), dan `threads` yang masih
   hardcoded 2.
+- **Bundel extension nyata, dan offline terbukti tanpa sudo (2026-11-01, M0):** `cmd/duckdb-bundle`
+  (di repo web) dijalankan untuk darwin/arm64 ke folder luar repo → **103 MB** berisi
+  `v1.1.3/osx_arm64/{postgres,mysql,sqlite}_scanner.duckdb_extension` (+ tiga `.info` 165–168 byte).
+  Angka yang sebelumnya belum pernah diukur siapa pun: **extension connector = 103 MB**
+  (postgres 32 MB, sqlite 32 MB, mysql 38 MB) di atas biner aplikasi 62 MiB — jadi ukuran installer produk
+  ini realistically ±170 MB, dan itu harus disebut di BRD §11 sebelum ada yang menjanjikan "unduhannya kecil".
+  Versi DuckDB yang dikunci go-duckdb v1.8.5 ikut terukur: **v1.1.3**, dan nama folder `<versi>/<platform>`
+  adalah alasan bundel **wajib** dibuat per-OS (mesin ini menghasilkan `osx_arm64`, bukan `linux_amd64`).
+  **Buktinya bukan "coba dan lihat berhasil":** folder bundel disalin lalu di-`chmod -R a-w` (hanya-baca) dan
+  proses dijalankan dengan `HOME=/tmp/muara-fakehome`. Kalau DuckDB mencoba mengunduh apa pun, ia harus
+  menulis ke salah satu dari dua tempat — folder hanya-baca (gagal keras) atau HOME default-nya (terlihat).
+  Hasil: `ATTACH` Postgres jalan, `tables:1`, `rows_in_orders:6`, **6 file bundel tidak berubah**, dan
+  **HOME palsu tetap 0 byte** — kombinasi yang hanya mungkin kalau connector dibaca dari berkas di folder
+  aplikasi. Ini sisi positif dari kontrak yang sisi negatifnya sudah dijaga
+  `TestBundledExtensionDirectoryStaysOffline` (bundle kosong → gagal cepat, folder tetap kosong).
+  Cara mereproduksi: `CGO_ENABLED=1 go build -o /tmp/duckdb-bundle ./cmd/duckdb-bundle` (repo web),
+  `/tmp/duckdb-bundle -out /tmp/muara-ext`, lalu
+  `HOME=/tmp/muara-fakehome /tmp/muara-spike-cli -extension-directory=<folder-hanya-baca> -pg-dsn="…" -table orders`.
+  `*.duckdb_extension` sudah di-gitignore, jadi tidak ada jalur diam-diam untuk ikut ter-commit.
+  **Sisa butir ini:** teknik yang sama belum diterapkan di linux dan windows — dan keduanya justru bisa
+  dibuktikan lebih kuat di CI (container `--network none` untuk linux, runner windows-latest untuk windows).
+  macOS adalah OS yang paling sulit dibuktikan "tidak ada jaringan" tanpa sudo, jadi bukti di atas adalah
+  bentuk terkuat yang bisa dicapai dari mesin user.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
+
 
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -276,14 +300,17 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
    **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB)
    dan **React/Vite sudah menggantikannya sebagai UI** (`frontend/dist` ter-embed, dibuktikan tes).
    Yang belum: pemasangan `meminfo.Budget` ke `NewQueryService` (butuh UI pengaturan FR-15, M4);
-   bundel extension + verifikasi dengan jaringan
-   **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; **minimum macOS yang benar** (`CGO_LDFLAGS`
+   bundel extension di **linux & windows** (darwin/arm64 sudah terbukti, lihat bullet §3 2026-11-01);
+   CI per-OS — dan catatan: repo ini **belum punya remote**, jadi workflow CI belum bisa membuktikan apa pun
+   sampai ada hosting; tiga pertanyaan Windows; **minimum macOS yang benar** (`CGO_LDFLAGS`
    belum dicoba — lihat temuan 4 di §3); dan apakah `threads` perlu ikut profil —
    sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
    Sudah terjawab 2026-11-01: **cara membaca RAM total per OS** (`internal/meminfo`, tiga OS enam GOARCH
-   ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`).
+   ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`) dan **bundel extension di macOS**
+   (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong).
    Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
    `CGO_ENABLED=1 MUARA_SPIKE_PG_DSN="…" go run .` — klik "Attach Postgres sample" → "Jalankan query".
+   Kalau mau memakai berkas extension yang sudah di-bundle, tambahkan `DUCKDB_EXTENSION_DIRECTORY=/tmp/muara-ext`.
    Kalau `go build` gagal dengan `pattern all:frontend/dist: no matching files found`, itu artinya langkah
    `npm run build` dilewat, bukan ada yang rusak di Go.
 2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang

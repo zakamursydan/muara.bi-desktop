@@ -132,10 +132,15 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
   - [ ] biner yang di-link statis bisa `LOAD` extension di Windows (Unix pakai `-extldflags=-Wl,-E`
         untuk `dlopen`; Windows tidak punya `RTLD_GLOBAL`)?
   - [ ] `postgres_scanner`/`mysql_scanner`/`sqlite_scanner` tersedia sebagai berkas `windows_amd64`?
-- [x] Extension dibundle dan `extension_directory` diarahkan ke folder aplikasi — **sisi engine sudah
+- [ ] Extension dibundle dan `extension_directory` diarahkan ke folder aplikasi — **sisi engine sudah
       menegakkannya** (2026-11-01: `INSTALL` dilompati + autoinstall `false`, dibuktikan gagal cepat dan
-      folder tetap kosong). Masih kurang: berkasnya benar-benar ada di folder aplikasi dan diverifikasi
-      dengan jaringan **dimatikan** di ketiga OS.
+      folder tetap kosong). **darwin/arm64 sudah terbukti positif** (2026-11-01): 103 MB berkas
+      `v1.1.3/osx_arm64/*_scanner.duckdb_extension` hasil `cmd/duckdb-bundle`, ATTACH Postgres jalan dengan
+      folder di-`chmod a-w` **dan** `HOME` dipindah ke folder kosong yang tetap 0 byte — jadi tidak ada tempat
+      untuk mengunduh dan tidak ada kebutuhan mengunduh. **Kurang: linux & windows**, dan keduanya lebih
+      mudah dibuktikan di CI daripada di mesin user (`--network none` untuk linux, runner windows untuk
+      windows). macOS memang yang paling sulit, jadi jangan pakai kemacetan di sini sebagai alasan menunda
+      dua OS lainnya.
 - [ ] CI per-OS (macOS/Linux/Windows). Bundel extension **tidak** di-commit dari satu mesin:
       `cmd/duckdb-bundle` dijalankan per-OS karena folder hasilnya per-platform.
 - [x] Bukti negatif CGO — **bentuknya berubah dari asumsi checklist** (2026-11-01): di macOS

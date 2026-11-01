@@ -301,6 +301,12 @@ butir 6), jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 - Berkas **third-party notices** ikut installer: Wails MIT, DuckDB MIT, go-duckdb MIT, excelize BSD-3 — semuanya
   permissive, syaratnya notis hak cipta didistribusikan. Penamaan produk mematuhi pedoman merek DuckDB
   ("ditenagai DuckDB", bukan nama produk DuckDB).
+- **Angka ukuran yang sudah diukur (2026-11-01, jangan sampai janji installer tidak realistis):** biner
+  aplikasi **62 MiB** (DuckDB statis + Wails + UI ter-embed) dan **bundel extension connector 103 MB**
+  (`postgres_scanner` 32 MB + `sqlite_scanner` 32 MB + `mysql_scanner` 38 MB, satu platform). Total ±170 MB
+  sebelum signing/compression per installer — dan angka ini **tidak bisa dibagi antar-OS**, karena folder
+  DuckDB bernama per-platform (`v1.1.3/osx_arm64/…`) sehingga setiap installer membawa berkas untuk OS-nya
+  sendiri. Extension tidak pernah di-commit (gitignored) dan selalu dihasilkan CI per-OS.
 
 ## 10. Blocker teknis — status terverifikasi
 

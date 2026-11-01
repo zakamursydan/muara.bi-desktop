@@ -303,4 +303,37 @@ Angka mesin ini: `hw.memsize` = **8589934592** (8 GiB) → `Budget` = **`2GiB`**
 mengisi `MaxMemory`, sehingga `Status()` terus membuktikan default engine bekerja tanpa konfigurasi, dan
 pemasangan `meminfo.Budget` baru terjadi bersama UI pengaturan (FR-15, M4).
 
+## 12. Bundel extension yang sebenarnya, dan cara membuktikannya offline di macOS (2026-11-01)
+
+Isi folder yang dihasilkan `cmd/duckdb-bundle` di mesin ini — **103 MB**, nama folder mengikuti DuckDB
+yang di-link statis (v1.1.3), bukan versi go-duckdb (v1.8.5):
+
+```
+v1.1.3/osx_arm64/postgres_scanner.duckdb_extension   32 MB
+v1.1.3/osx_arm64/sqlite_scanner.duckdb_extension     32 MB
+v1.1.3/osx_arm64/mysql_scanner.duckdb_extension      38 MB
+v1.1.3/osx_arm64/*.duckdb_extension.info          165–168 B  (sidecar metadata DuckDB; isinya tidak dibaca)
+```
+
+`<versi DuckDB>/<platform>` adalah jawaban kenapa bundel tidak boleh di-commit dari satu mesin: nama
+foldernya milik OS tempat ia dibuat. Angka ini juga yang membuat §9 BRD (ukuran installer) sekarang punya
+dasar: ±170 MB per installer sebelum signing, dan tidak bisa dipakai silang antar-OS.
+
+**Bagaimana membuktikan "tidak ada jaringan" tanpa `sudo` di macOS.** `--network none` cuma punya Docker
+(linux), `pfctl`/`dnctl` butuh hak root, dan `fs_usage` juga. Yang tersedia tanpa privileges adalah membuat
+**tidak ada tempat untuk menulis hasil unduhan**:
+
+1. salin bundel, lalu `chmod -R a-w` — setiap unduhan ke `extension_directory` gagal keras;
+2. jalankan dengan `HOME=/tmp/muara-fakehome` — kalau DuckDB pakai direktori defaultnya, hasilnya muncul
+   di sana, dan foldernya diketahui kosong sejak awal.
+
+Hasilnya pada run ini: ATTACH Postgres berhasil (`tables:1`, `rows_in_orders:6`), jumlah file bundel tetap
+6, dan HOME palsu tetap **0 byte**. Engine sudah menutup dua jalur unduhan lain (`INSTALL` dilompati,
+`autoinstall_known_extensions=false`, `autoload_known_extensions=false`), jadi run ini bukan sekadar
+"kebetulan belum sempat download" — ia adalah bukti bahwa berkas di folder aplikasi **cukup**.
+Sisi negatifnya dijaga `TestBundledExtensionDirectoryStaysOffline` di engine (bundle kosong → `LOAD` gagal,
+folder tetap kosong). Untuk linux/windows, pakai `--network none` dan runner windows di CI; itu bukti yang
+lebih kuat daripada trik di atas, bukan pengulangan pekerjaan.
+
+
 
