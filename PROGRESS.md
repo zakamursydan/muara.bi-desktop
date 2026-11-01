@@ -85,6 +85,34 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   berkas extension wajib benar-benar ikut ter-copy, dan pesan "extension ... is unavailable" harus
   diterjemahkan UI — saran DuckDB `Install it first using "INSTALL postgres"` menyesatkan di desktop.
   Detail di [docs/engine-map.md](docs/engine-map.md) §8.
+- **Skeleton Wails v3 berdiri (2026-11-01, masih M0):** versi **v3.0.0** dikunci di `go.mod` — bukan
+  `v3.1.0-nightly.*` yang juga tersedia di proxy, karena spike tidak boleh berdiri di atas moving target.
+  Lisensinya **MIT (c) 2018-Present Lea Anthony**, dibaca dari `LICENSE` di dalam modul hasil `go get`
+  (`$(go env GOMODCACHE)/github.com/wailsapp/wails/v3@v3.0.0/LICENSE`), bukan dari branch utama — persis
+  yang diminta butir checklist. CLI-nya `go install` ke `.tools/bin/wails3` (gitignored, jadi versi tool
+  mengikat pada repo, bukan pada PATH mesin). Bentuknya: `main.go` (aplikasi + guard mesin),
+  `query_service.go` (satu-satunya jembatan webview→engine: `Status`/`AttachSample`/`Run`/`Close`),
+  `assets/index.html` (HTML polos + binding hasil `wails3 generate bindings`, belum React/Vite).
+  Terukur: `go build` CGO=1 menghasilkan binary 64 MB berisi DuckDB + Wails sekaligus; `go test` lulus —
+  `Status()` membalas `max_memory = 2.0 GiB` dan `threads = 2`, `Run()` mempertahankan kontrak M1.4
+  (`range(20000)` dengan cap 10000 → `truncated=true`, `truncated_by=row_limit`), dan `DROP TABLE` ditolak
+  `ErrForbiddenStatement` **di jembatan**, bukan di UI. Dijalankan 10 dtk: proses hidup dan AssetServer
+  melayani `/` lalu `bindings/muara.bi/desktop/{index,queryservice,models}.js` — halaman benar-benar dimuat
+  dan binding-nya ter-resolve. Konfirmasi visual (angka muncul di jendela) masih milik user.
+- **Tiga temuan yang mengubah rencana M0 (2026-11-01):**
+  1. **CGO-off tidak bisa dibangun di macOS sama sekali** — `CGO_ENABLED=0 go build ./...` gagal di paket
+     `pkg/application` (`undefined: macosApp`, `newPlatformApp`, `mac.GetBundleID`). Butir "matikan CGO →
+     aplikasi menolak start dengan pesan jelas" karena itu **bukan** tes runtime desktop: gerbangnya pindah
+     ke build/CI (artefak CGO-off tidak boleh ada), sementara `ErrCGODisabled` tetap jadi penjaga runtime
+     di web, yang memang bisa dibangun tanpa CGO.
+  2. **JSON tag engine menyeberang apa adanya ke JavaScript**: `QueryResult` datang sebagai
+     `row_count`/`duration_ms`/`truncated_by`/`row_limit` (snake_case dari tag Go) sementara struct desktop
+     sendiri `duckdbVersion`/`maxMemory` (camelCase). Kontrak UI §12 harus menulis nama field per sumber,
+     bukan berharap satu gaya.
+  3. **`npm` tidak ada di mesin ini** (tidak ada node/nvm/volta/mise; yang ada hanya Electron-as-Node
+     milik Qoder) sementara disk **98% penuh (±5 GiB sisa)**. React/Vite butuh Node ±100 MB +
+     `node_modules` ±250 MB, jadi butir itu ditahan dan butuh keputusan user — bukan sesuatu yang boleh
+     diam-diam memakan ruang yang dipakai stack Docker milik user.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -173,10 +201,13 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 1. Lanjutkan spike **M0**. Yang sudah terbukti: modul desktop mengonsumsi engine lewat
    `replace muara.bi/engine => ../muara.bi-service/backend/engine` (bukan salinan), default memorinya
    sampai ke DuckDB, CGO-off menolak dengan jelas, dan bundle sekarang benar-benar offline.
-   Yang belum: skeleton **Wails v3** (kunci versinya, baca lisensi dari tag itu) + React/Vite; **cara
-   membaca RAM total per OS** (dibutuhkan default `min(4GiB, RAM/4)`); bundel extension + verifikasi
-   dengan jaringan **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; dan apakah `threads`
-   perlu ikut profil — sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
+   **Skeleton Wails v3.0.0 juga sudah berdiri** (binding `Status/AttachSample/Run` menjawab dari DuckDB).
+   Yang belum: **React/Vite** (tertahan keputusan instalasi Node — lihat §5), **cara membaca RAM total per
+   OS** (dibutuhkan default `min(4GiB, RAM/4)`); bundel extension + verifikasi dengan jaringan
+   **dimatikan** di tiga OS; CI per-OS; tiga pertanyaan Windows; dan apakah `threads` perlu ikut profil —
+   sekarang masih hardcoded 2 (`engine/duckdb/session_cgo.go`, `NewEngine`).
+   Cek cepat oleh user: build `.` dengan `CGO_ENABLED=1` sambil `MUARA_SPIKE_PG_DSN` terisi, jalankan
+   binary-nya, lalu di jendela klik "Attach Postgres sample" → "Jalankan query".
 2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
    sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
@@ -192,6 +223,15 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   meminta `go 1.27.1`) — artinya build di mesin ini butuh cache itu; offline tanpa cache build gagal
   dengan pesan "go.mod requires go >= 1.27.1". DuckDB linux/darwin sudah terverifikasi
   di produk web; **Windows belum pernah disentuh sama sekali** — M0 adalah pertama kalinya.
+- **Node/npm tidak ada di mesin ini (2026-11-01).** Tidak ada `node`, `npm`, nvm, volta, mise, maupun
+  homebrew node; satu-satunya runtime JS adalah Electron-as-Node milik Qoder
+  (`ELECTRON_RUN_AS_NODE=1 /Applications/Qoder.app/Contents/MacOS/Qoder` → v24.18.0) yang **tidak**
+  membawa npm. Egress sendiri sehat (`registry.npmjs.org` 200). Karena itu React/Vite ditahan: dipasang
+  Node = ±100 MB, `node_modules` = ±250 MB, sedang disk tinggal **±5 GiB dari 228 GB (98% penuh)** dan
+  dipakai bersama stack Docker user. Butuh keputusan user sebelum berjalan sendiri.
+- Skeleton Wails dibangun tanpa npm: `wails3 generate bindings` adalah tool Go, dan `assets/` serving
+  HTML polos cukup untuk membuktikan binding memanggil engine. Untuk menjalankan ulang setelah mengubah
+  method service: `.tools/bin/wails3 generate bindings -d assets/bindings` (butuh `CGO_ENABLED=1`).
 - Cara menjalankan spike: `CGO_ENABLED=1 go build -o /tmp/muara-spike ./cmd/spike` lalu
   `MUARA_SPIKE_PG_DSN="host=localhost port=5435 user=sample_user password=sample_password
   dbname=sample_ecommerce sslmode=disable" /tmp/muara-spike`. DSN **tidak** pernah di-hardcode di
@@ -205,5 +245,5 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   (layar S4a: "Pin ke proyek lain", bukan duplikasi).
 - Keputusan user 2026-10-30: **opsi A disetujui** — repo web boleh disentuh satu commit untuk
   `git mv` engine + ganti import path (M1.3).
-- Repo ini sudah `git init` dengan 10 commit dokumen (per 2026-11-01) dan **belum ada remote**;
-  `cmd/spike/`, `go.mod` dan `go.sum` adalah kode pertama di repo ini.
+- Repo ini **belum ada remote**; commit lokal berisi dokumen plus kode pertama di repo (`cmd/spike/`,
+  `go.mod`, `go.sum`), lalu skeleton Wails (`main.go`, `query_service.go`, `assets/`).

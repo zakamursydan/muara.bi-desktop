@@ -212,3 +212,25 @@ Artinya untuk M0: berkas extension wajib benar-benar ter-copy ke folder aplikasi
 harus diterjemahkan UI** ("connector belum terpasang"), bukan diteruskan mentah — DuckDB menutupnya dengan
 `Install it first using "INSTALL postgres"`, saran yang di desktop justru salah.
 
+
+## 9. Apa yang dilihat JavaScript dari engine (skeleton Wails, 2026-11-01)
+
+Binding `wails3 generate bindings` memetakan struct Go ke model JS **per JSON tag**, bukan per nama field,
+jadi bentuk yang sampai ke UI adalah campuran dua gaya yang harus ditulis eksplisit di kontrak UI §12:
+
+| Sumber | Field yang terlihat di JS |
+|---|---|
+| `duckdb.QueryResult` (tag Go snake_case) | `columns`, `rows`, `row_count`, `duration_ms`, `row_limit`, `truncated`, `truncated_by` |
+| Struct desktop (`EngineStatus`) | `duckdbVersion`, `maxMemory`, `threads`, `tempDirectory`, `extensionDirectory` |
+
+Tiga hal lain yang terbukti di jembatan ini:
+
+- Guardrail tetap milik engine, tapi **`ValidateQuery` tidak dipanggil `Session.Query`** — ia lapisan
+  pemanggil. Jembatan desktop memanggilnya sendiri sebelum `Query`, jadi `DROP TABLE` ditolak dengan
+  `ErrForbiddenStatement` di sisi Go, bukan disembunyikan di UI. Web melakukan hal yang sama di
+  `internal/service`; dua konsumen, dua titik panggil, satu implementasi.
+- Kontrak M1.4 bertahan melintasi serialisasi: `SELECT * FROM range(20000)` dengan cap default
+  menghasilkan `row_count = 10000`, `truncated = true`, `truncated_by = "row_limit"` di JS.
+- Metode service yang **diekspor** otomatis jadi binding, termasuk `Close()`. Tidak berbahaya di spike
+  (aset hanya lokal), tapi produk tidak boleh memberi webview tombol untuk mematikan session — nanti pakai
+  `application.ServiceShutdown` (`ServiceShutdown() error`) atau nama yang tidak diekspor.

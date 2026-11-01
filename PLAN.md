@@ -115,7 +115,11 @@ Keluaran: jawaban ya/tidak untuk "Wails v3 × CGO × DuckDB asli × offline di t
 default `2GiB` sampai ke DuckDB, dan CGO-off menolak start. Bundel extension sekarang ditegakkan engine —
 lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya berarti "terbukti di spike".*
 
-- [ ] Skeleton Wails v3 (versi dikunci, `LICENSE` di tag itu dibaca, bukan dari branch utama) + React/Vite.
+- [x] Skeleton Wails v3 terpasang, **versi dikunci `v3.0.0`** (bukan `v3.1.0-nightly.*` yang juga ada di
+      proxy), `LICENSE` dibaca dari modul hasil `go get` di tag itu: **MIT (c) 2018-Present Lea Anthony**.
+      CLI `wails3` ikut dikunci di `.tools/bin` (gitignored) supaya versinya mengikat pada repo.
+- [ ] **React/Vite** di atas skeleton itu. Tertahan alat, bukan desain: mesin ini tidak punya `npm`
+      (lihat PROGRESS §5) dan disk 98% penuh — butuh keputusan user sebelum menginstal Node.
 - [ ] Satu binding memanggil engine dan `SELECT` nyata dari Postgres tampil di grid — **di Windows**.
 - [ ] Tiga pertanyaan Windows yang harus dijawab, masing-masing dengan bukti, bukan asumsi:
   - [ ] go-duckdb v1.8.5 menyediakan `libduckdb.a` untuk windows/amd64? ABI-nya cocok dengan mingw-w64?
@@ -128,13 +132,23 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       dengan jaringan **dimatikan** di ketiga OS.
 - [ ] CI per-OS (macOS/Linux/Windows). Bundel extension **tidak** di-commit dari satu mesin:
       `cmd/duckdb-bundle` dijalankan per-OS karena folder hasilnya per-platform.
-- [x] Bukti negatif: matikan CGO → menolak start dengan pesan jelas (`duckdb engine unavailable: binary
-      built without CGO…`, exit 1) — tercapai di spike; di app nanti pesan yang sama harus muncul di UI,
-      bukan sebagai window kosong.
+- [x] Bukti negatif CGO — **bentuknya berubah dari asumsi checklist** (2026-11-01): di macOS
+      `CGO_ENABLED=0 go build ./...` **gagal kompilasi** di `pkg/application` (`undefined: macosApp`,
+      `newPlatformApp`), jadi aplikasi desktop tidak bisa menghasilkan artefak CGO-off yang "menolak start".
+      Yang terbukti: (a) build CGO-off gagal keras — itu gerbangnya, dan (b) pada CLI spike (`cmd/spike`)
+      yang tidak memakai Wails, biner CGO-off jalan dan menolak dengan `duckdb engine unavailable: binary
+      built without CGO…` (exit 1). Konsekuensinya untuk CI: **jangan** pakai `CGO_ENABLED=0` sebagai
+      matriks build desktop; cukup pastikan build CGO=1 hijau dan `go test ./...` (engine) juga menguji
+      pesan `ErrCGODisabled` untuk web.
 - [ ] **Cara membaca RAM total di Windows/macOS/Linux.** Jawabannya dibutuhkan untuk default
       `max_memory` = `min(4GiB, RAM/4)` (BRD §15 butir 6); selama belum ada, fallback `2GiB`. Jangan
       menambah dependensi (mis. gopsutil) sebelum terbukti bacaan per-OS yang polos tidak cukup — ini
       satu-satunya alasan butir ikut M0, bukan M6.
+- [ ] **Deployment target macOS ditetapkan.** Link biner spike mengeluarkan warning
+      `object file ... was built for newer 'macOS' version (14.0) than being linked (11.0)` — arsip statis
+      DuckDB memang di-compile untuk 14.0. Artinya binary hari ini hanya aman di ≥14.0 walaupun Go mengira
+      minimal 11.0. Putuskan minimum OS produk, lalu samakan `-mmacosx-version-min` di `CGO_CFLAGS`/
+      `CGO_LDFLAGS` supaya warning hilang dan batasnya jadi nyata, bukan kebetulan.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
       query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
       dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas
