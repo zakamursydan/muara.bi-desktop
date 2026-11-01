@@ -21,7 +21,7 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
 
 ## 3. Status terkini
 
-- **Update terakhir:** 2026-10-31
+- **Update terakhir:** 2026-11-01
 - **Fase aktif:** **M1 selesai 2026-10-31.** M1.1 (peta paket engine), M1.2 (CGO fail-fast), **M1.3 (ekstraksi
   `muara.bi/engine`)**, **M1.4 (kontrak `QueryResult.truncated`)** dan **M1.5 (`max_memory` jadi
   konfigurasi)** tuntas, dan exit criterion terakhir dibuktikan `make image-core` — image web benar-benar
@@ -60,6 +60,12 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
   `muara-bi-core:dev` 369 MB. Bukti yang paling relevan untuk desktop: `go version -m /usr/local/bin/api`
   (diambil dari dalam container) mencantumkan `muara.bi/engine v0.0.0` **tanpa hash**, jadi engine di-resolve
   dari direktori lokal — satu salinan engine, dua produk, tidak ada duplikasi yang diam-diam.
+  → **Profil memori desktop diputuskan (2026-11-01)** (BRD §15 butir 6): probe langsung ke DuckDB membatalkan
+  dua catatan sesi kemarin (angka polos justru ditolak DuckDB, bukan dibaca byte; dan `2GiB` selama ini
+  ditolak engine padahal DuckDB menerimanya), menghasilkan engine yang sekarang menerima unit biner
+  `KiB|MiB|GiB|TiB`, tes budget dua kasus (desimal + biner, bandingkan byte), dan default
+  `min(4GiB, RAM/4)` dengan slider FR-15 berlabel GiB. Fakta pembanding yang tidak sengaja ketemu:
+  kalau tidak di-SET, DuckDB mengambil **80% RAM** sendiri (`6.3 GiB` di host 8 GB).
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -129,29 +135,31 @@ Lanjutkan eksekusi task berikutnya sesuai checklist di PLAN.md!
     sendiri, **web tidak boleh lagi mempre-apply `ApplyLimit`**: SQL yang sudah berisi `LIMIT n` membuat
     probe tidak pernah melihat baris ekstra, sehingga semua hasil tampak utuh. Ini kontrak baru antara
     engine dan pemanggil — desktop wajib meneruskan cap lewat `QueryOptions`, bukan lewat teks SQL.
-  - **Batas memori (M1.5, diverifikasi 2026-10-31):** `SET max_memory` sekarang datang dari
+  - **Batas memori (M1.5, diverifikasi 2026-10-31; dikoreksi 2026-11-01):** `SET max_memory` datang dari
     `GuardrailConfig.MaxMemory` (`"2GB"` bila tidak diisi) dan `NewEngine` menolak nilai yang tidak
-    berbentuk angka+unit — `"2048"` ditolak karena DuckDB membacanya sebagai **byte**, bukan 2 GB.
-    Dua fakta yang harus ikut masuk settings desktop (FR-15): DuckDB menyimpan `"256MB"` sebagai
-    256 × 10⁶ byte tapi `current_setting('max_memory')` menampilkannya dalam MiB (`244.1 MiB`), jadi
-    label "2 GB" efektifnya 1,86 GiB; dan puncak pemakaian = **jumlah sesi × budget per sesi**.
-    Untuk pertanyaan BRD §18 butir 6 (laptop 8 GB / 16 GB): secara teknis sudah bisa diubah per pengguna,
-    tinggal diputuskan angka default + pengingat bahwa DuckDB juga bisa menulis ke disk saat kelebihan
-    memori (`temp_directory` — belum pernah disentuh sama sekali).
+    berbentuk angka+unit. Catatan lama di sini salah dua hal, dan keduanya sudah dibetulkan di engine:
+    `"2048"` **bukan** dibaca DuckDB sebagai byte — DuckDB menolaknya sendiri
+    (`Parser Error: Unknown unit for memory_limit`); dan engine tadinya **menolak `2GiB`** padahal itu
+    ejaan biner yang DuckDB terima. Empat hasil probe langsung (2026-11-01): `2GiB` → tepat 2.147.483.648
+    byte, `256MB` → 256.000.000 byte tapi dibalas `244.1 MiB`, `-1` → diterima DuckDB sebagai tanpa batas
+    (engine tetap menolak), dan **kalau tidak di-SET DuckDB mengambil 80% RAM** (`6.3 GiB` di host 8 GB).
+    Konsekuensinya untuk FR-15 sekarang konkret, dan pertanyaan BRD §15 butir 6 terjawab:
+    default `min(4GiB, RAM/4)` (2 GiB di laptop 8 GB), slider berlabel **GiB** yang string-nya dikirim apa
+    adanya, mulai dari satu sesi paralel, dan `temp_directory` tetap perlu disentuh (DuckDB spill ke disk
+    saat budget kurang — jadi budget kecil tidak memotong hasil, hanya memperlambat).
 
 ## 4. Task berikutnya (urutan)
 
-1. **Keputusan kecil yang terbuka (BRD §18 butir 6):** angka default `max_memory` untuk laptop 8 GB/16 GB
-   dan apakah settings desktop memaknai "GB" sebagai GiB agar tidak membingungkan (engine sudah menerima
-   `MB`/`GB`/`TB` desimal dari DuckDB).
-2. Spike **M0** (Wails + CI per-OS) — M1 sudah punya bukti lengkap, jadi tidak ada lagi yang menahan.
-   Repo desktop ikut memakai engine lewat
-   `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. `threads` per sesi
-   masih hardcoded 2 (`engine/duckdb/session_cgo.go`) dan sengaja dibawa ke M0 bersama profil CPU mesin.
-3. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
+1. Spike **M0** (Wails + CI per-OS) — M1 sudah punya bukti lengkap dan default memori sudah diputuskan,
+   jadi tidak ada lagi yang menahan. Repo desktop ikut memakai engine lewat
+   `replace muara.bi/engine => ../muara.bi-service/backend/engine`, bukan salinan. Dua hal yang harus
+   dijawab M0 untuk profil mesin: **cara membaca RAM total per OS** (dibutuhkan default
+   `min(4GiB, RAM/4)`) dan apakah `threads` perlu ikut profil — sekarang masih hardcoded 2
+   (`engine/duckdb/session_cgo.go`, `NewEngine`).
+2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
    sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
-4. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
+3. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
    *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*

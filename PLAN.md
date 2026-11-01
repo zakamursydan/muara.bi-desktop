@@ -73,10 +73,17 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       `quoteLiteral`. Web membacanya dari `config.DuckDBConfig.MaxMemory` (`DUCKDB_MAX_MEMORY`, default
       `2GB`) → `internal/app/server/service.go:59`; **desktop nanti mengambil field yang sama dari
       profilnya** (FR-15), tidak ada jalur kedua.
-      Dua hal yang perlu diingat saat menulis settings desktop: (1) DuckDB membaca `"256MB"` sebagai
-      256 × 10⁶ byte tetapi menampilkannya dalam MiB (`244.1 MiB`), jadi label "2 GB" = 1,86 GiB efektif;
-      (2) puncak memori = **jumlah sesi × budget per sesi**, jadi settings harus menampilkan keduanya
-      bersama. Angka polos seperti `"2048"` ditolak (DuckDB membacanya sebagai byte).
+      Profil desktop kini **putus** (BRD §15 butir 6, 2026-11-01): default `min(4GiB, RAM/4)` — 2 GiB di
+      laptop 8 GB, 4 GiB di 16 GB ke atas, dan selalu satu sesi lebih dulu.
+      Empat hal yang perlu diingat saat menulis settings desktop — semuanya diprobe langsung ke DuckDB pada
+      2026-11-01, dan dua di antaranya **membatalkan catatan sesi sebelumnya**: (1) DuckDB menerima unit
+      **biner** juga (`2GiB` = tepat 2.147.483.648 byte) di samping desimal (`256MB` = 256 × 10⁶ byte,
+      yang dibalasnya `244.1 MiB`), jadi FR-15 memakai label GiB dan meneruskan string apa adanya — engine
+      sudah menerimanya, padahal sebelum 2026-11-01 justru `2GiB` yang ditolak; (2) angka polos seperti
+      `"2048"` ditolak **oleh DuckDB sendiri** (`Unknown unit for memory_limit`), bukan dibaca sebagai byte
+      seperti yang dicatat semula; (3) kalau tidak di-SET, DuckDB mengambil **80% RAM** (terukur 6.3 GiB di
+      host 8 GB), jadi nilai harus selalu eksplisit; (4) puncak memori = **jumlah sesi × budget per sesi**,
+      jadi settings menampilkan keduanya bersama.
       `threads` (baris `:39`) sengaja tetap hardcoded 2 dan ditandai di kode — masuk M0.
       Ditest: `TestNormalizeMaxMemory` (CGO-free), `TestEngineAppliesConfiguredMemoryBudget` dan
       `TestEngineRejectsUnusableMemoryBudget` (CGO, bandingkan **byte** lewat `current_setting`).
@@ -114,10 +121,14 @@ Keluaran: jawaban ya/tidak untuk "Wails v3 × CGO × DuckDB asli × offline di t
 - [ ] CI per-OS (macOS/Linux/Windows). Bundel extension **tidak** di-commit dari satu mesin:
       `cmd/duckdb-bundle` dijalankan per-OS karena folder hasilnya per-platform.
 - [ ] Bukti negatif: matikan CGO → aplikasi menolak start dengan pesan jelas (bukan menampilkan kosong).
+- [ ] **Cara membaca RAM total di Windows/macOS/Linux.** Jawabannya dibutuhkan untuk default
+      `max_memory` = `min(4GiB, RAM/4)` (BRD §15 butir 6); selama belum ada, fallback `2GiB`. Jangan
+      menambah dependensi (mis. gopsutil) sebelum terbukti bacaan per-OS yang polos tidak cukup — ini
+      satu-satunya alasan butir ikut M0, bukan M6.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
-      query paralel** (`threads` disetel di `session_cgo.go:39`), latensi round-trip, dan berapa lama forwarder
-      bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas `max_connections` yang layak
-      dan apakah `threads` perlu ikut profil, bukan asumsi.
+      query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
+      dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas
+      `max_connections` yang layak dan apakah `threads` perlu ikut profil, bukan asumsi.
 
 **Exit:** installer dev berjalan di Windows dan macOS tanpa peringatan Gatekeeper/SmartScreen untuk
 skenario uji, query federated nyata jalan offline, dan CI per-OS hijau. Kalau salah satu pertanyaan

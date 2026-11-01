@@ -173,3 +173,7 @@ implementasi desktop tidak perlu mengulang policing-nya:
 - `GuardrailConfig.MaxMemory` (`"2GB"` default, `duckdb.DefaultMaxMemory`) — divalidasi `NormalizeMaxMemory`
   di `NewEngine`, sehingga nilai salah mengembalikan error alih-alih budget lama. Desktop memasok ini dari
   settings (FR-15); web dari `DUCKDB_MAX_MEMORY`.
+  **Unit yang diterima (diprobe 2026-11-01): `B|KB|MB|GB|TB` desimal *dan* `KiB|MiB|GiB|TiB` biner**,
+  angka wajib + tanpa spasi. Artinya FR-15 cukup menulis `GiB` dan mengirimnya utuh — tidak ada konversi,
+  tidak ada label yang bohong. Yang ditolak engine walau DuckDB menerima: `"-1"` (tanpa batas), `"2 GB"`.
+  Kalau `max_memory` tidak di-SET sama sekali DuckDB mengambil **80% RAM**, jadi nilai harus selalu eksplisit.

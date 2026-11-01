@@ -288,10 +288,9 @@ UI: alert hanya jalan saat aplikasi terbuka. Email menyusul (belum ada SMTP send
 Kontrak §7.5 mengikat. BYOK: API key user sendiri, disimpan di keychain.
 
 **FR-15 Settings.** Profil lokal (pemetaan alias → host + kredensial, status keychain terlihat), penyedia AI,
-kanal alert, **batas memori DuckDB per sesi** (engine sudah menerima `GuardrailConfig.MaxMemory` sejak M1.5
-2026-10-31, default 2 GB; tinggal memajangnya di UI — ingat DuckDB memakai unit desimal, jadi "2 GB" efektifnya
-1,86 GiB, dan puncak = kadar ini × jumlah sesi paralel),
-jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
+kanal alert, **batas memori DuckDB per sesi** (engine menerima `GuardrailConfig.MaxMemory` sejak M1.5 2026-10-31
+dan, sejak 2026-11-01, juga unit biner — jadi slider UI menulis `GiB` dan string itu dikirim apa adanya; lihat §15
+butir 6), jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 
 ## 9. Kebutuhan non-fungsional & keamanan
 
@@ -312,7 +311,7 @@ jumlah kueri paralel, batas baris guardrail, tampilan (dark mode).
 | 3 | Schema cache miskin (tanpa kualifikasi schema, PK/FK, nullability, komentar, jumlah baris) | **BUKA** — `ColumnDef` = `{Name, Type}` di `connection_service.go:344` |
 | 4 | Cap Mongo 10.000 dokumen & batas jumlah collection tanpa penanda | **SELESAI di engine 2026-10-31** — `StreamMongoCollections` mengembalikan `[]MongoMount` (jumlah dokumen + `Truncated`), `QueryResult.TruncatedBy = source_cap` membawa daftar view yang terpotong; `MaxMongoCollections` tetap gagal keras (bukan hasil parsial). **Yang tersisa cuma penanda di UI** → M2 |
 | 5 | Build non-CGO mengembalikan hasil palsu | **SELESAI 2026-10-31** — `NewEngine` mengembalikan `duckdb.ErrCGODisabled`, stub tidak bisa menghasilkan `QueryResult` lagi; dibuktikan `cgo_disabled_test.go` + `cgo_enabled_test.go` (kontrak §7.4 kini ditegakkan di engine) |
-| 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **SELESAI di engine 2026-10-31 (M1.5)** — `GuardrailConfig.MaxMemory` + `NormalizeMaxMemory` (gagal di startup kalau bukan angka+unit; default tetap 2 GB). Web sudah membacanya dari `DUCKDB_MAX_MEMORY`. **Yang tersisa: pengaturannya di UI settings desktop** → FR-15 |
+| 6 | `max_memory` DuckDB hardcoded 2 GB/sesi | **SELESAI di engine** — `GuardrailConfig.MaxMemory` + `NormalizeMaxMemory` (gagal di startup kalau bukan angka+unit; default tetap `2GB` desimal). Web membacanya dari `DUCKDB_MAX_MEMORY`. Sejak 2026-11-01 engine juga menerima `KiB/MiB/GiB/TiB`, dan §15 butir 6 sudah menjawab default desktop (`min(4GiB, RAM/4)`). **Yang tersisa cuma UI-nya** → FR-15 + M6 |
 | 7 | Bastion hanya dipakai Test Connection — jalur query & schema-sync tidak lewat tunnel | **BUKA, temuan 2026-10-31** — `TestConnection` mende-dial bastion, sedangkan `SyncSchema` dan `attachConnection` memakai `cfg.Host` lewat `service.postgresDSN` → §5.7 aturan 1 & 2. Untuk DuckDB tidak ada jalan lain selain forwarder TCP lokal |
 | 8 | Tidak ada tempat untuk CA privat (`rootcert`); `sslmode` default `disable` | **BUKA, temuan 2026-10-31** — perakit DSN kini satu tempat (`service.postgresDSN`, lihat butir 9) tapi hanya merakit `sslmode` dengan default `disable`; tidak ada field CA. → §5.7 aturan 3 |
 | 9 | `SyncSchema` Postgres selalu gagal kalau `ssl_mode` kosong | **SELESAI 2026-10-31 (di produk web, desktop ikut sehat)** — `SyncSchema` dulu menghasilkan `... sslmode= sslmode=disable` dan `pgx.ParseConfig` menolaknya (`cannot parse ...: failed to configure TLS (sslmode is invalid)`). Keduanya kini memakai `service.postgresDSN(cfg)`: satu default `disable`, nilai user di-quote per aturan libpq (`dsnValue`) sehingga kredensial berspasi maupun yang menyamar jadi parameter lain tidak bisa menembus DSN. Enam tes di `session_preparer_test.go`, salah satunya membuktikan bentuk DSN lama memang ditolak. **`ssl_mode` juga divalidasi di titik tulis (2026-10-31):** `normalizeSSLMode` menolak nilai di luar enam mode libpq, `UpsertEnvironment` menjawab 400 sebelum menyimpan, dan handler `Create`/`UpsertEnvironment`/`SyncSchema` ikut dibetulkan supaya error validasi tidak lagi dipaksa jadi 500 |
@@ -425,10 +424,19 @@ otomatis di M4.
 3. Batas ukuran & jumlah file per bundle — diukur di M3, bukan ditebak sekarang.
 4. Mode Present butuh ekspor PDF/snapshot?
 5. Impor `.xlsx` sebagai sumber: extension DuckDB vs parse Go-side — ditunda, tapi perlu keputusan sebelum v1.x.
-6. Batas memori default per sesi untuk laptop 8 GB/16 GB (FR-15) — angka awal 4 GB? Sisi engine sudah siap
-   (M1.5 2026-10-31: `GuardrailConfig.MaxMemory`), jadi ini murni keputusan UI + label. Perlu diputuskan juga
-   apakah menampilkan "GB" sebagai GiB: DuckDB membaca `256MB` sebagai 256 × 10⁶ byte tapi menulisnya kembali
-   dalam MiB, sehingga "4 GB" di layar bukan 4 GiB RAM.
+6. ~~Batas memori default per sesi untuk laptop 8 GB/16 GB (FR-15)~~ **Dijawab 2026-11-01: `min(4GiB, RAM/4)`,**
+   jadi 2 GiB di laptop 8 GB dan 4 GiB di 16 GB ke atas. Empat angka yang mendasarinya, semuanya terukur hari ini:
+   - **kalau tidak di-SET, DuckDB mengambil 80% RAM sendiri** (terukur `6.3 GiB` di host 8 GB) — terlalu rakus untuk
+     aplikasi yang hidup berdampingan dengan browser, jadi angkanya harus eksplisit, bukan warisan default;
+   - budget lebih kecil tidak memotong hasil: DuckDB **spill ke `temp_directory`**, hanya lebih lambat — jadi 4 GiB
+     sebagai batas atas tidak mengorbankan kebenaran, hanya kecepatan;
+   - **label UI dan nilai yang dikirim harus sama.** DuckDB menerima unit biner (`2GiB` = tepat 2.147.483.648 byte),
+     sedangkan `2GB` desimal diam-diam 1,86 GiB. Slider FR-15 karena itu memakai **GiB** dan meneruskan string-nya
+     apa adanya — engine menerima ini sejak 2026-11-01, sebelumnya justru ditolak;
+   - puncak = budget × jumlah sesi paralel. Desktop single-user mulai dengan **satu** sesi, jadi default aman; begitu
+     FR-15 membuka "kueri paralel = 2", default harus diturunkan atau dihitung ulang.
+   Yang **tidak** diputuskan di sini: cara membaca RAM total di tiga OS. Itu pertanyaan spike M0 — jangan tambah
+   dependensi sebelum dibuktikan; selama belum ada, fallback-nya `2GiB`.
 
 ## 16. Cara melanjutkan di mesin/model baru
 
