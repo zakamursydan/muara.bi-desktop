@@ -362,6 +362,8 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       (M3), dan **UI**: web baru menerima `root_cert` lewat API, form koneksi belum punya kolomnya — dan kolom
       itu harus per-driver, karena tiga driver punya tiga aturan berbeda yang sudah diukur
       (`sslrootcert` + gerbang mode untuk Postgres, `tlsCAFile` + nyala/mati untuk Mongo, tidak ada untuk MySQL).
+      **Wireframe per-driver sudah dibuat 2026-11-02 dan menunggu konfirmasi scope** sebelum ada baris kode
+      frontend (input path teks, kolom nonaktif untuk MySQL/SQLite, tanpa saklar TLS baru).
 
 **Exit:** tree menampilkan kolom Mongo dan Postgres berdampingan; satu query lintas dua alias jalan;
 pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang bastion/VPN terbukti jalan pada

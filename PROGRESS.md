@@ -624,7 +624,12 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
    (a) **UI** — web hanya menerima `root_cert` lewat API; form koneksi belum punya kolomnya, dan sesuai cara
-   kerja yang disepakati: **wireframe/mockup dulu sebelum koding UI**, bukan langsung input;
+   kerja yang disepakati: **wireframe/mockup dulu sebelum koding UI**, bukan langsung input. Wireframe sudah
+   disajikan 2026-11-02 (satu drawer, empat state driver, pesan validasi yang sama dengan yang dipakai API) dan
+   membawa **tiga usulan yang masih menunggu konfirmasi**: input path teks (bukan file picker — berkasnya hidup
+   di mesin API, browser tidak bisa memberi path absolut mesin lain), kolom **tampil tapi nonaktif** untuk
+   MySQL/SQLite (bukan disembunyikan, supaya operator tahu connectornya memang tidak membaca CA), dan tanpa
+   saklar TLS baru (mode `ssl_mode` yang sudah ada yang menentukan nyala/mati);
    (b) **MySQL — selesai 2026-11-02, dan jawabannya "tidak bisa di jalur DuckDB".** Builder
    `%s:%s@tcp(%s:%d)/%s` yang ternyata **ditolak scanner** itu sudah diganti dengan `duckdb.MySQLDSN` di engine
    (grammar lengkap dan tabel hasil probe ada di engine-map §17), dan `ssl_ca` tidak pernah ada tempatnya:
