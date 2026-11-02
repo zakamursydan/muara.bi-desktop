@@ -22,6 +22,9 @@ func main() {
 		"Postgres conninfo to ATTACH; empty skips the federated step")
 	sqliteFile := flag.String("sqlite-file", os.Getenv("MUARA_SPIKE_SQLITE_FILE"),
 		"local SQLite file to ATTACH; the connector proof that needs no server and no network")
+	sourceFile := flag.String("file", os.Getenv("MUARA_SPIKE_FILE"),
+		"local CSV/TSV/Parquet/JSON file mounted as a temp view; works with no server, no network and no bundled connector")
+	view := flag.String("view", "spike_file", "DuckDB temp view name created for -file")
 	alias := flag.String("alias", "sample", "DuckDB catalogue name for the attached source")
 	table := flag.String("table", "", "fixture table to count rows in, after the source is attached")
 	extDir := flag.String("extension-directory", os.Getenv("DUCKDB_EXTENSION_DIRECTORY"),
@@ -52,8 +55,26 @@ func main() {
 
 	report(ctx, session, "SELECT 1 AS one, current_setting('max_memory') AS budget, current_setting('threads') AS threads")
 
+	// A local file is the cheapest source this probe can read: the CSV, Parquet
+	// and JSON readers are compiled into DuckDB, so this step answers "does the
+	// engine file path work on this OS" with no server, no network and no
+	// bundled connector — and DESCRIBE shows what type inference produced.
+	if *sourceFile != "" {
+		if !sqlident.IsPlain(*view) {
+			fail("validate view", fmt.Errorf("%q is not a plain identifier", *view))
+		}
+		if err := session.RegisterFileSource(ctx, *view, *sourceFile); err != nil {
+			fail("register file source", err)
+		}
+		report(ctx, session, fmt.Sprintf("SELECT count(*) AS rows_in_view FROM %s", *view))
+		report(ctx, session, fmt.Sprintf("DESCRIBE SELECT * FROM %s", *view))
+	}
+
 	if *dsn == "" && *sqliteFile == "" {
-		fmt.Println("SKIP federated steps: no -pg-dsn and no -sqlite-file given (engine-only probe)")
+		if *sourceFile != "" {
+			return
+		}
+		fmt.Println("SKIP source steps: no -pg-dsn, no -sqlite-file and no -file given (engine-only probe)")
 		return
 	}
 	// The alias becomes an identifier in the statement below, so it is checked

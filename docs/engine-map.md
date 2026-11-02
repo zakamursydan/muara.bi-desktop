@@ -177,6 +177,11 @@ implementasi desktop tidak perlu mengulang policing-nya:
   angka wajib + tanpa spasi. Artinya FR-15 cukup menulis `GiB` dan mengirimnya utuh — tidak ada konversi,
   tidak ada label yang bohong. Yang ditolak engine walau DuckDB menerima: `"-1"` (tanpa batas), `"2 GB"`.
   Kalau `max_memory` tidak di-SET sama sekali DuckDB mengambil **80% RAM**, jadi nilai harus selalu eksplisit.
+- `Session.RegisterFileSource(ctx, viewName, path string) error` (2026-11-02) — mendaftar **satu berkas**
+  sebagai temp view lewat reader core DuckDB; pemetaan ekstensi dan bentuk query ada di
+  `duckdb.FileSourceQuery` (§15). Nama view divalidasi `sqlident.IsPlain` dan path masuk sebagai string literal
+  hasil `quoteLiteral`, jadi desktop tidak perlu (dan tidak boleh) merakit SQL-nya sendiri. Ini jalur sumber
+  file; `Attach*` tetap untuk database.
 
 ## 8. Spike M0 (2026-11-01) — engine hidup di modul kedua, dan bundel extension ternyata tidak offline
 
@@ -425,6 +430,36 @@ Dua hal yang baru kelihatan waktu spike menyentuh sisi build, bukan sisi runtime
    `.tools/bin/wails3 generate bindings -d frontend/bindings` dijalankan; menulis ulang berkasnya manual
    menghasilkan binding yang memanggil ID milik metode lain, dan kegagalan itu baru muncul saat diklik.
    Generator itu sendiri bersih dan cepat (369 paket, 5 metode, 2,2 dtk) dan tidak butuh `task`.
+
+## 15. Sumber file: reader core, bukan extension (2026-11-02)
+
+Butir M2 "sumber file v1" ternyata tidak menyentuh bundel sama sekali, dan perbedaan itu cukup penting untuk
+dicatat terpisah — jangan tertukar dengan §12, yang mengurus extension:
+
+- **Tiga reader sudah dikompilasi ke biner DuckDB**: `read_csv_auto` (juga untuk `.tsv` — delimiter dicium
+  otomatis), `read_parquet`, `read_json_auto` (objek per baris maupun array). Karena tidak ada extension yang
+  dimuat, klaim "offline" untuk sumber file lebih kuat daripada untuk Postgres/MySQL/SQLite: tidak ada folder
+  bundel, tidak ada CDN, tidak ada `LOAD`.
+- **Cara membuktikan reader ada tanpa berkasnya**: `read_parquet` diuji dengan path yang tidak ada, dan yang
+  keluar adalah `IO Error: No files found that match the pattern "/tmp/does-not-exist.parquet"` — bukan
+  "extension tidak tersedia". Dengan bundel **kosong dan hanya-baca** plus `HOME` kosong, kegagalan itu hanya
+  bisa berarti satu hal: namanya sudah dikenal DuckDB. Trik yang berlaku umum di spike: kalau sebuah fungsi
+  menolak karena *file*, ia sudah ter-resolve.
+- **Inferensi tipe datang dari `DESCRIBE SELECT * FROM view`**, bukan dari engine sendiri: CSV/JSON fixture
+  menghasilkan `id BIGINT`, `channel VARCHAR`, `total DOUBLE`. Kolom dan tipenya lewat `ColumnMeta` yang sama
+  dengan hasil query biasa, jadi grid tidak perlu jalur khusus. `.tsv` numerik bisa muncul sebagai `BIGINT`
+  sementara `.csv` dengan angka desimal menjadi `DOUBLE` — tipe kolom sumber file adalah apa yang DuckDB
+  simpulkan, dan itu harus ditampilkan apa adanya di UI, jangan digores "text" supaya seragam.
+- **Yang ditolak, ditolak dengan nama:** `.txt`, `.xlsx`, `Makefile`, `.pqt`, path kosong mengembalikan
+  `ErrUnsupportedFileSource` dengan pesan yang menyebutkan daftar yang didukung. Ini pilihan desain, bukan
+  kelalaian: membiarkan `.xlsx` lolos berarti engine diam-diam mencoba extension `excel`, yang akan mengunduh
+  dari CDN atau gagal setelah timeout — dua-duanya melanggar janji desktop.
+- **Quote helper dipindah ke berkas tanpa tag build** (`duckdb/sqlquote.go`). Selama `quoteIdent`/`quoteLiteral`
+  tinggal di `session_cgo.go`, paket `duckdb` pada `CGO_ENABLED=0` tidak bisa menguji logika path/nama, dan
+  gerbang empat-mode ikut kehilangan coverage untuk bagian yang justru paling rawan injection.
+- **Sisa yang belum terbukti:** satu berkas `.parquet` nyata yang layak di-commit (tidak bisa dibuat dari
+  dalam engine karena `COPY … TO` dilarang guardrail), aturan **path relatif** di `.muara` (temp view saat ini
+  menyimpan path absolut), dan UI impornya.
 
 
 

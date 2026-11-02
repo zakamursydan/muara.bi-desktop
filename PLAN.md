@@ -285,7 +285,12 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       `QueryResult.TruncatedBy = source_cap`), yang tersisa adalah menampilkan `truncated`/`truncated_by`/
       `capped_sources` di result grid (FR-3) dan di pre-flight bundle (FR-11).
 - [ ] Sumber file v1: CSV + Parquet + JSON lewat `read_csv_auto`/`read_parquet`/`read_json_auto`
-      (core DuckDB, tanpa extension per-OS). **Keputusan XLSX tercatat**: extension vs parse Go-side vs
+      (core DuckDB, tanpa extension per-OS). **Sisi engine selesai 2026-11-02**: `duckdb.FileSourceQuery` +
+      `Session.RegisterFileSource` memetakan ekstensi ke reader core (`.csv`/`.tsv`/`.parquet`/`.pq`/`.json`/
+      `.jsonl`) dan menolak sisanya dengan `ErrUnsupportedFileSource` — dibuktikan offline dengan bundel
+      kosong-hanya-baca, dan `read_parquet` terbukti ada di biner karena berkas hilang membalas `IO Error`,
+      bukan "extension tidak tersedia". Yang tersisa: fixture Parquet, aturan path relatif §5.5, UI impor.
+      **Keputusan XLSX tercatat**: extension vs parse Go-side vs
       "simpan sebagai CSV/Parquet" — tanpa jalur diam-diam.
 - [ ] **Transport ke sumber privat (BRD §5.7)** — bastion jadi **forwarder TCP lokal** dan dipakai oleh
       *semua* jalur, bukan hanya Test Connection. Ini wajib dikerjakan di engine karena `attachConnection`

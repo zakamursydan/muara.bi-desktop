@@ -84,7 +84,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
 
 ## 3. Status terkini
 
-- **Update terakhir:** 2026-11-01
+- **Update terakhir:** 2026-11-02
 - **Fase aktif:** **M1 selesai 2026-10-31.** M1.1 (peta paket engine), M1.2 (CGO fail-fast), **M1.3 (ekstraksi
   `muara.bi/engine`)**, **M1.4 (kontrak `QueryResult.truncated`)** dan **M1.5 (`max_memory` jadi
   konfigurasi)** tuntas, dan exit criterion terakhir dibuktikan `make image-core` — image web benar-benar
@@ -335,6 +335,40 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      `Resources/duckdb/extensions` kosong. Itu bug yang baru kelihatan waktu CI ditulis: folder kosong tetap
      ter-resolve oleh `bundledExtensionDir()`, engine mengira ada bundel, `INSTALL` dilompati, dan setiap
      connector melaporkan "unavailable" — kegagalan yang jauh lebih membingungkan daripada tidak dibundle sama sekali.
+- **Sumber file v1 dibuka di engine: reader core, tanpa extension per-OS (2026-11-02, M2 / PLAN.md butir
+  "Sumber file v1"):**
+  1. `duckdb.FileSourceQuery(path)` + `Session.RegisterFileSource(ctx, viewName, path)` memetakan ekstensi ke
+     reader yang sudah dikompilasi ke biner DuckDB: `.csv`/`.tsv` → `read_csv_auto`, `.parquet`/`.pq` →
+     `read_parquet`, `.json`/`.jsonl` → `read_json_auto`. Bentuknya **temp view dari reader**, bukan attach,
+     dan itu pilihan yang disengaja: tiga reader tersebut tidak butuh bundel, jadi produk bisa membuka berkas
+     user tanpa menyentuh jaringan — beda fundamental dari Postgres/MySQL/SQLite yang tetap butuh scanner.
+     Di luar daftar itu ditolak lewat `ErrUnsupportedFileSource` dengan pesan yang menyebut ekstensi yang
+     didukung; tidak ada jalur diam-diam yang mencoba `INSTALL` lalu gagal setelah 30 detik.
+  2. Helper `quoteIdent`/`quoteLiteral` **dipindah** dari `session_cgo.go` ke `sqlquote.go` (tanpa tag build).
+     Alasannya bukan kerapian: `filesource.go` harus tetap terkompilasi dan teruji pada `CGO_ENABLED=0`, dan
+     selama quoting hidup di berkas ber-tag `//go:build cgo` mesin tidak bisa membuktikan path penamaan view
+     di mode itu. Gerbang empat-mode (engine+web × CGO 1/0, `build`+`vet`+`test`, `gofmt -l`) hijau.
+  3. Terukur offline di mesin ini dengan bundel **kosong dan hanya-baca** serta `HOME` dikosongkan:
+     `spike.csv` → 6 baris, `spike.json` → 6 baris, dan `DESCRIBE SELECT * FROM spike_file` mengembalikan
+     `id BIGINT`, `channel VARCHAR`, `total DOUBLE` — jadi inferensi tipe yang jadi dasar "kolom" di produk
+     sudah terbukti lewat jalur yang sama, bukan lewat perkiraan. `spike-notes.txt` ditolak dengan pesan
+     reader. `.tsv` juga terbaca benar (DuckDB mencium delimiter sendiri; `total` malah jadi `BIGINT`).
+     Bukti paling penting justru dari berkas yang **tidak ada**: `read_parquet('/tmp/does-not-exist.parquet')`
+     membalas `IO Error: No files found that match the pattern …`, bukan "extension tidak tersedia" — artinya
+     reader Parquet memang ada di dalam biner, dan kegagalan berikutnya cuma urusan berkas.
+  4. **Yang belum:** fixture Parquet. Menulis satu berkas parquet butuh `COPY … TO`, dan guardrail engine
+     memang melarang statement itu (jalur desktop tidak boleh menulis sembarang file), jadi yang terbukti baru
+     "readernya ada", bukan "produk bisa baca parquet ekspor orang". Perlu sumber berkas parquet kecil yang
+     layak di-commit sebelum butir M2 itu bisa ditutup.
+  5. `cmd/spike` dapat `-file` + `-view` (env `MUARA_SPIKE_FILE`, sama polanya dengan DSN dan fixture SQLite:
+     path datang dari lingkungan, webview tidak pernah bisa menyodorkan path yang akan dibuka aplikasi).
+     Di CI env-nya ditambahkan ke **dua langkah bukti yang sudah ada**, bukan bikin langkah baru, karena
+     langkah itu jalan di tiga OS dan prefiks `VAR=value cmd` hanya valid di shell POSIX.
+  6. **Keputusan XLSX-source tetap terbuka, tapi sekarang punya dasar:** engine menolak `.xlsx`, sementara
+     `engine/exporter/WriteXLSX` (excelize, pure Go) hanya melayani **ekspor**. Jadi "impor .xlsx sebagai
+     sumber" bukan sekadar belum dikerjakan — ia menuntut pilihan yang punya konsekuensi janji produk: parser
+     Go-side (tetap offline, biaya pengembangan) vs extension `excel` (melanggar claims "sumber file tidak
+     butuh bundel") vs "minta user simpan sebagai CSV/Parquet" (murah, tapi memindahkan kerja ke user).
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -444,6 +478,8 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    `sh build/macos-app.sh <folder-bundle>` dan jalankan binernya dari shell dengan
    `MUARA_SPIKE_SQLITE_FILE` dan/atau `MUARA_SPIKE_PG_DSN` di-set (resep §5) — klik "Attach SQLite fixture"
    (tidak butuh server apa pun) atau "Attach Postgres sample" → "Jalankan query" untuk melihat grid terisi.
+   Untuk jalur file (sejak 2026-11-02, tidak butuh connector sama sekali):
+   `MUARA_SPIKE_FILE=tests/fixtures/spike.csv go run ./cmd/spike` — mencetak jumlah baris dan hasil `DESCRIBE`.
    Jangan lewat langkah bundel: sejak 2026-11-01 `build/macos-app.sh` **menolak** path bundel yang tidak ada,
    karena sebelumnya ia membuat folder kosong dan kegagalan yang muncul adalah "extension unavailable", bukan
    "kamu lupa mem-bundle".
@@ -456,7 +492,18 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
 2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
    sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
-3. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
+3. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
+   `Session.RegisterFileSource` (CSV/TSV/Parquet/JSON lewat reader core, tanpa bundel), ditolak rapi untuk tipe
+   lain, plus probe `-file` dan langkah CI. Yang masih terbuka, urut dari yang paling murah:
+   (a) **fixture Parquet** — reader-nya terbukti ada (error yang keluar adalah `IO Error: No files found`), tapi
+   belum ada berkas kecil yang layak di-commit untuk membuktikannya membaca; engine melarang `COPY … TO`, jadi
+   tidak bisa dibuat dari dalam produk;
+   (b) **aturan path relatif di `.muara`** — view hasil `RegisterFileSource` menyimpan path absolut di dalam
+     definisinya, sehingga bundle yang dipindah mesin lain akan menunjuk ke berkas yang tidak ada; ini butir
+     §5.5 BRD yang belum ditulis sama sekali;
+   (c) **UI impor + registrasi view per sumber file** di produk (bukan spike);
+   (d) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
+4. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
    *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*

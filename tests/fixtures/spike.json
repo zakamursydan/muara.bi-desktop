@@ -1,0 +1,8 @@
+[
+  { "id": 1, "channel": "online", "total": 120.5 },
+  { "id": 2, "channel": "retail", "total": 80.0 },
+  { "id": 3, "channel": "online", "total": 210.75 },
+  { "id": 4, "channel": "wholesale", "total": 540.0 },
+  { "id": 5, "channel": "retail", "total": 45.25 },
+  { "id": 6, "channel": "online", "total": 99.99 }
+]

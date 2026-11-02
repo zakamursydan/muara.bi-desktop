@@ -115,11 +115,15 @@ jobs:
           CGO_ENABLED: "1"
           DUCKDB_EXTENSION_DIRECTORY: ${{ matrix.bundle_dir }}
           MUARA_SPIKE_SQLITE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.sqlite
+          MUARA_SPIKE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.csv
         run: go run ./cmd/spike -table orders
         # SQLite is the fixture every platform can reach: no database server, no
         # credentials, no connection to time out. It is what makes the Windows
         # question ("can a statically linked binary LOAD an extension at all?")
         # answerable on a runner that has no Postgres.
+        # The CSV rides the same run because its reader is compiled into DuckDB:
+        # if a file source ever starts needing an extension, this step is the one
+        # that notices on all three OS at once.
 
       - name: Repeat the proof with the bundle read-only and an empty HOME
         if: runner.os != 'Windows'
@@ -128,6 +132,7 @@ jobs:
           CGO_ENABLED: "1"
           DUCKDB_EXTENSION_DIRECTORY: ${{ matrix.bundle_dir }}
           MUARA_SPIKE_SQLITE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.sqlite
+          MUARA_SPIKE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.json
         run: |
           chmod -R a-w "${{ matrix.bundle_dir }}"
           go build -o bin/spike ./cmd/spike
