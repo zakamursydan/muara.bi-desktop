@@ -243,6 +243,12 @@ type Bundle struct {
 	Views          []View
 	Dashboards     []Dashboard
 	Alerts         []Alert
+
+	// Sealed holds the raw secrets.enc blob after Open, and is nil for every
+	// bundle written without the opt-in credential block. Save refuses a bundle
+	// whose Sealed is set: dropping the block has to be a decision (set it to
+	// nil), not an accident. See SaveWithSecrets and Unseal.
+	Sealed []byte
 }
 
 // checkRefs is true when writing, false when reading. The app that owns the

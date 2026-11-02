@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"muara.bi/desktop/internal/secrets"
 	"muara.bi/engine/duckdb"
 )
 
@@ -46,6 +47,12 @@ var (
 	ErrUnknownFormat = errors.New("bundle: format this app does not know")
 	ErrTooNewFormat  = errors.New("bundle: format newer than this app reads")
 	ErrNeedsNewerApp = errors.New("bundle: needs a newer muara.bi Desktop")
+
+	// ErrSealedBlock marks the one case Save refuses on purpose: a bundle that
+	// carries a sealed credential block cannot be saved without deciding what
+	// happens to it, because silently dropping the block would lose the only
+	// copy of credentials that travel with the file (BRD §6).
+	ErrSealedBlock = errors.New("bundle: sealed credential block")
 )
 
 // Save writes the bundle to path as a zip, atomically: the archive is built in
@@ -56,7 +63,50 @@ var (
 // File source paths are canonicalised against the folder of path (§5.5), so a
 // file inside the bundle folder is stored relative and travels with it, and a
 // file outside stays an absolute machine-local path that says so.
+//
+// A bundle whose Sealed block is set is refused: keeping the credentials means
+// SaveWithSecrets, dropping them means setting Sealed to nil first.
 func Save(path string, b *Bundle) error {
+	if b.Sealed != nil {
+		return fmt.Errorf("%w: this bundle carries an encrypted credential block — save it with "+
+			"SaveWithSecrets and the passphrase, or drop the block on purpose first", ErrSealedBlock)
+	}
+	return save(path, b, nil)
+}
+
+// SaveWithSecrets is the opt-in path of BRD §6: the plaintext credentials are
+// sealed with the passphrase (argon2id → AES-256-GCM, new code in
+// internal/secrets) and written as the eighth entry. The caller's bundle keeps
+// the sealed blob afterwards, so a later plain Save refuses instead of silently
+// dropping the block.
+func SaveWithSecrets(path string, b *Bundle, plaintext []byte, passphrase string) error {
+	// Validate before the KDF, which costs hundreds of milliseconds on purpose.
+	if err := b.validate(true); err != nil {
+		return err
+	}
+	sealed, err := secrets.Encrypt(plaintext, passphrase)
+	if err != nil {
+		return err
+	}
+	if err := save(path, b, sealed); err != nil {
+		return err
+	}
+	b.Sealed = sealed
+	return nil
+}
+
+// Unseal opens the credential block that Open carried in Sealed. A wrong
+// passphrase and a damaged block answer the same error on purpose: GCM cannot
+// tell them apart, and pretending it could would send the user to the wrong
+// door.
+func (b *Bundle) Unseal(passphrase string) ([]byte, error) {
+	if b.Sealed == nil {
+		return nil, fmt.Errorf("%w: this bundle carries no encrypted credential block", ErrSealedBlock)
+	}
+	return secrets.Decrypt(b.Sealed, passphrase)
+}
+
+func save(path string, b *Bundle, sealed []byte) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("%w: no file name given", ErrNotABundle)
 	}
@@ -79,7 +129,7 @@ func Save(path string, b *Bundle) error {
 		return fmt.Errorf("bundle: cannot save into %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	if err := writeBundle(tmp, out, out.Manifest.CreatedAt); err != nil {
+	if err := writeBundle(tmp, out, sealed, out.Manifest.CreatedAt); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
 		return err
@@ -102,7 +152,7 @@ func Save(path string, b *Bundle) error {
 	return nil
 }
 
-func writeBundle(w io.Writer, b *Bundle, stamp time.Time) error {
+func writeBundle(w io.Writer, b *Bundle, sealed []byte, stamp time.Time) error {
 	zw := zip.NewWriter(w)
 	put := func(name string, payload any) error {
 		data, err := json.MarshalIndent(payload, "", "  ")
@@ -128,7 +178,8 @@ func writeBundle(w io.Writer, b *Bundle, stamp time.Time) error {
 		return err
 	}
 	// Each entity type gets its own entry even when empty, so the entry list of
-	// a bundle is always the same seven names.
+	// a bundle without a sealed block is always the same seven names; a sealed
+	// bundle appends secrets.enc after them.
 	for _, spec := range []struct {
 		name    string
 		payload any
@@ -142,6 +193,17 @@ func writeBundle(w io.Writer, b *Bundle, stamp time.Time) error {
 	} {
 		if err := put(spec.name, spec.payload); err != nil {
 			return err
+		}
+	}
+	if sealed != nil {
+		header := &zip.FileHeader{Name: entrySecrets, Method: zip.Deflate}
+		header.Modified = stamp
+		entry, err := zw.CreateHeader(header)
+		if err != nil {
+			return fmt.Errorf("bundle: create %s: %w", entrySecrets, err)
+		}
+		if _, err := entry.Write(sealed); err != nil {
+			return fmt.Errorf("bundle: write %s: %w", entrySecrets, err)
 		}
 	}
 	return zw.Close()
@@ -193,12 +255,24 @@ func Open(path string) (*Bundle, error) {
 		return nil, err
 	}
 
+	var sealed []byte
 	for name := range entries {
 		switch name {
 		case entryManifest:
 		case entrySecrets:
-			return nil, fmt.Errorf("%w: %s carries %s — this build cannot read an encrypted credential block yet",
-				ErrUnknownFormat, path, entrySecrets)
+			// The block is carried, not opened: unsealing needs the passphrase,
+			// which is Unseal's business. Only its envelope is checked here, so a
+			// bundle whose block this app cannot read at all is refused with a
+			// reason instead of carried broken.
+			raw, err := readEntry(entries[name])
+			if err != nil {
+				return nil, err
+			}
+			if err := secrets.Check(raw); err != nil {
+				return nil, fmt.Errorf("%w: %s holds %s, which this app cannot read: %v",
+					ErrUnknownFormat, path, entrySecrets, err)
+			}
+			sealed = raw
 		default:
 			if !isEntityEntry(name) {
 				return nil, fmt.Errorf("%w: %s holds %s, which this format does not define",
@@ -207,7 +281,7 @@ func Open(path string) (*Bundle, error) {
 		}
 	}
 
-	b := &Bundle{Manifest: manifest}
+	b := &Bundle{Manifest: manifest, Sealed: sealed}
 	for _, name := range entityEntries {
 		entry, ok := entries[name]
 		if !ok {
@@ -253,15 +327,24 @@ func isEntityEntry(name string) bool {
 	return false
 }
 
-func decodeEntry[T any](entry *zip.File, out *T) error {
+func readEntry(entry *zip.File) ([]byte, error) {
 	reader, err := entry.Open()
 	if err != nil {
-		return fmt.Errorf("bundle: reading %s: %w", entry.Name, err)
+		return nil, fmt.Errorf("bundle: reading %s: %w", entry.Name, err)
 	}
 	defer reader.Close()
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		return fmt.Errorf("bundle: reading %s: %w", entry.Name, err)
+		return nil, fmt.Errorf("bundle: reading %s: %w", entry.Name, err)
+	}
+	return data, nil
+}
+
+func decodeEntry[T any](entry *zip.File, out *T) error {
+	data, err := readEntry(entry)
+	if err != nil {
+		// readEntry already names the entry that failed.
+		return err
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("bundle: %s is not valid JSON: %w", entry.Name, err)

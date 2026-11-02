@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"muara.bi/desktop/internal/bundle"
+	"muara.bi/desktop/internal/secrets"
 	"muara.bi/engine/duckdb"
 )
 
@@ -284,6 +285,102 @@ func TestSaveOfSameContentIsByteIdentical(t *testing.T) {
 	}
 }
 
+// The sealed path is the one deliberate exception to byte-identical saves: a
+// fresh salt and nonce per seal is what keeps the block sealed, so two sealed
+// saves of the same content differ — and only inside secrets.enc, which is what
+// an import must know before it can dedupe such a bundle (M4).
+func TestSaveWithSecretsIsNeverByteIdentical(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatalf("data folder: %v", err)
+	}
+	if err := os.WriteFile(fileSource(dir, "orders.csv"), []byte("id\n1\n"), 0o644); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	plaintext := []byte(`{"sales":{"user":"analyst","db_password":"s3kret"}}`)
+	first := filepath.Join(dir, "first.muara")
+	second := filepath.Join(dir, "second.muara")
+	for _, path := range []string{first, second} {
+		if err := bundle.SaveWithSecrets(path, fullBundle(dir), plaintext, "kata sandi"); err != nil {
+			t.Fatalf("save %s: %v", path, err)
+		}
+	}
+	a, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	b, err := os.ReadFile(second)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if bytes.Equal(a, b) {
+		t.Fatal("two sealed saves are identical — the block would reuse its salt or nonce")
+	}
+	// The difference is confined to the sealed block: the seven entity entries
+	// stay byte-identical, so a hash-based dedupe can still compare them.
+	for _, name := range []string{"manifest.json", "projects.json", "connections.json",
+		"semantic_models.json", "views.json", "dashboards.json", "alerts.json"} {
+		if !bytes.Equal(zipEntry(t, first, name), zipEntry(t, second, name)) {
+			t.Errorf("%s differs between two saves of the same bundle", name)
+		}
+	}
+}
+
+func TestSealedBundleOpensUnsealsAndRefusesSilentDrop(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatalf("data folder: %v", err)
+	}
+	if err := os.WriteFile(fileSource(dir, "orders.csv"), []byte("id\n1\n"), 0o644); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	path := filepath.Join(dir, "sealed.muara")
+	plaintext := []byte(`{"sales":{"user":"analyst","db_password":"s3kret"}}`)
+	if err := bundle.SaveWithSecrets(path, fullBundle(dir), plaintext, "kata sandi"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	names := zipEntries(t, path)
+	if len(names) != 8 || names[7] != "secrets.enc" {
+		t.Errorf("entries = %v, want the seven plus secrets.enc last", names)
+	}
+
+	got, err := bundle.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got.Sealed == nil {
+		t.Fatal("open dropped the sealed block")
+	}
+	opened, err := got.Unseal("kata sandi")
+	if err != nil {
+		t.Fatalf("unseal: %v", err)
+	}
+	if !bytes.Equal(opened, plaintext) {
+		t.Errorf("unsealed = %q, want %q", opened, plaintext)
+	}
+	if _, err := got.Unseal("salah"); !errors.Is(err, secrets.ErrWrongPassphrase) {
+		t.Errorf("wrong passphrase error = %v, want ErrWrongPassphrase", err)
+	}
+
+	// A plain Save of the opened bundle must refuse: dropping the block has to
+	// be a decision, not an accident of which save button was pressed.
+	if err := bundle.Save(filepath.Join(dir, "plain.muara"), got); !errors.Is(err, bundle.ErrSealedBlock) {
+		t.Errorf("plain save error = %v, want ErrSealedBlock", err)
+	}
+
+	// The decision is explicit: nil the block, save, and the file is the
+	// ordinary seven entries again.
+	got.Sealed = nil
+	stripped := filepath.Join(dir, "stripped.muara")
+	if err := bundle.Save(stripped, got); err != nil {
+		t.Fatalf("save after stripping: %v", err)
+	}
+	if names := zipEntries(t, stripped); len(names) != 7 {
+		t.Errorf("stripped bundle has %d entries, want 7", len(names))
+	}
+}
+
 // M3 promises a save cannot destroy the file it is replacing. Both failure
 // paths are exercised: one that never starts writing, and one that fails after
 // the archive is complete.
@@ -473,10 +570,10 @@ func TestOpenRefusesABundleItDoesNotUnderstand(t *testing.T) {
 			wantMsg: "widgets.json",
 		},
 		{
-			name:    "encrypted credential block",
+			name:    "sealed block this app cannot read",
 			extra:   map[string]string{"secrets.enc": "not-a-secret-in-this-build"},
 			wantErr: bundle.ErrUnknownFormat,
-			wantMsg: "cannot read an encrypted credential block",
+			wantMsg: "secrets.enc",
 		},
 	}
 

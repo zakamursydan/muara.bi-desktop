@@ -2,6 +2,8 @@ package bundle_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -84,6 +86,36 @@ func jsonFieldNames(typ reflect.Type) []string {
 func TestBundleBytesCarryNoCredentialString(t *testing.T) {
 	dir := t.TempDir()
 	path := writeBundleFile(t, dir, fullBundle(dir))
+
+	for _, name := range zipEntries(t, path) {
+		body := string(zipEntry(t, path, name))
+		lowered := strings.ToLower(body)
+		for _, word := range credentialWords {
+			if strings.Contains(lowered, word) {
+				t.Errorf("%s contains %q:\n%s", name, word, body)
+			}
+		}
+	}
+}
+
+// TestSealedBundleBytesCarryNoCredentialString applies the same grep to the
+// opt-in block itself: even when the exporter sealed a payload full of
+// credential words, the file still spells none of them. The envelope's hex
+// fields are what make this hold for every block ever sealed, not for the one
+// drawn today.
+func TestSealedBundleBytesCarryNoCredentialString(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatalf("data folder: %v", err)
+	}
+	if err := os.WriteFile(fileSource(dir, "orders.csv"), []byte("id\n1\n"), 0o644); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	plaintext := []byte("password=one token=two secret=three credential=four api_key=five dsn=six sasl=seven keyfile=eight private_key=nine")
+	path := filepath.Join(dir, "sealed.muara")
+	if err := bundle.SaveWithSecrets(path, fullBundle(dir), plaintext, "benar"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 
 	for _, name := range zipEntries(t, path) {
 		body := string(zipEntry(t, path, name))

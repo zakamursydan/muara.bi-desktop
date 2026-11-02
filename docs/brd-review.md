@@ -71,6 +71,8 @@ Toolchain terpasang di mesin ini `go1.25.0`. Tulis "Go 1.25+".
 `internal/helper/cryptohelper` adalah AES-256-GCM dengan key dari env var. Yang diminta §8 untuk
 bundle (argon2id → AES-256-GCM) tidak ada di kode: KDF-nya baru, beserta penyimpanan salt/nonce di
 `secrets.enc`, dan kemungkinan dependensi baru `golang.org/x/crypto/argon2`. Jangan dihitung sebagai reuse.
+(Diimplementasikan 2026-11-02 sebagai `internal/secrets/` + dependensi argon2 — penghitungan ini tetap benar:
+kode baru, bukan reuse.)
 
 ## 5. §5.3 + keputusan "file source masuk v1" = lubang portabilitas yang belum ada solusinya
 

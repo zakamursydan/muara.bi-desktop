@@ -543,8 +543,15 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       sudah terpasang di `/Applications/muara-bi.app` (2026-11-02), jadi yang kurang cuma dua klik (pilih berkas,
       pilih folder); gerbang otomatis sudah menjaga label kontrol ada di bundle, tapi tidak ada tes Go yang bisa
       membuktikan dialog OS menampilkan `*.muara` dan mengembalikan path yang benar.
-- [ ] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
+- [x] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
       KDF-nya kode baru; `cryptohelper` hari ini hanya AES-GCM dengan key dari env.
+      **Terukur 2026-11-02 (`internal/secrets/`, M3b):** `SaveWithSecrets` satu-satunya jalur blok tertulis,
+      `Save` polos menolak bundle ber-blok (`ErrSealedBlock`, menjatuhkan blok harus eksplisit), dan grep atas
+      bundle ber-secrets dengan payload penuh kata kredensial menemukan **nol kata** — deterministik karena isi
+      biner ditulis hex. Envelope JSON berversi menyimpan salt/nonce/param KDF; salah passphrase dan blok rusak
+      sama-sama `ErrWrongPassphrase` (GCM tidak bisa membedakannya). Dua save ber-secrets **sengaja** tidak
+      identik byte — dedupe M4 membandingkan tujuh entri entitas saja. Yang menunggu manusia: prompt passphrase
+      di dialog export — milik M3(c) bersama toggle tiga tingkat.
 
 **Exit:** save lalu buka ulang mempertahankan seluruh View utuh; grep isi bundle menemukan nol string
 kredensial; dua berkas di folder berbeda di mesin yang sama tetap resolve.

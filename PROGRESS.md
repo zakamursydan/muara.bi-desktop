@@ -600,8 +600,9 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   - **Format ditegakkan sebelum isi dibaca.** `Open` membaca `manifest.json` lebih dulu dan menolak dengan angka:
     format ≠ `muara.bundle`, `version` ≠ 1 (naik → "update muara.bi Desktop", turun → format tak dikenal),
     `min_app_version` di atas `bundle.AppVersion`, entri wajib hilang, nama entri tak dikenal, nama entri ganda,
-    dan berkas yang bukan zip. **`secrets.enc` ikut ditolak** — bukan karena tidak aman, tapi karena KDF-nya belum
-    ada; mengabaikan entri itu diam-diam berarti menyerahkan bundle yang isinya tidak bisa kita jelaskan.
+    dan berkas yang bukan zip. **`secrets.enc` sempat ikut ditolak** selama KDF-nya belum ada — mengabaikan entri
+    itu diam-diam berarti menyerahkan bundle yang isinya tidak bisa kita jelaskan; sejak 2026-11-02 bloknya terbaca
+    (bentuk dicek `secrets.Check`, isi dibuka lewat `Unseal` + passphrase — lihat §2 butir (b)).
   - **Save tidak bisa merusak berkas lama.** `CreateTemp` di folder yang sama → tulis zip → `Sync` → `Rename`.
     Dua jalur gagal diuji terpisah: validasi yang menolak **sebelum** menulis, dan `Rename` yang gagal **setelah**
     archive lengkap (target sebuah folder) — berkas lama tetap identik byte dan tidak ada `.tmp` tertinggal.
@@ -830,8 +831,23 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      window dan dijaga `TestDocumentControlsAreInShippedBundle`. **`.app` baru sudah ter-build dan terpasang di
      `/Applications` (2026-11-02, `minos=14.0` + 3 extension)** — satu-satunya yang tersisa: **satu klik nyata pada
      dialog Wails** (`OpenWithDialog` / `SaveAsWithDialog`), yang tidak bisa dibuktikan dari tes Go;
-   (b) **`secrets.enc`**: argon2id → AES-256-GCM, kode baru (`cryptohelper` web hanya AES-GCM dengan key dari
-     env). Sampai blok itu ada, `Open` dengan sengaja menolak bundle yang memuat `secrets.enc`;
+   (b) **`secrets.enc` — selesai 2026-11-02 (`internal/secrets/`, kode baru; `golang.org/x/crypto/argon2`
+     dipromosikan dari indirect).** Bloknya JSON envelope berversi (`format`/`version`/`kdf`/`cipher`/`time`/
+     `memory`/`threads`/`salt`/`nonce`/`data`) dengan argon2id t=3, m=64 MiB, p=4 → key 32 byte → AES-256-GCM.
+     Terukur di mesin ini: seal 63 ms, buka 61 ms, `secrets.Check` (yang dipakai `Open`) cuma 40 µs karena tidak
+     menyentuh KDF. Tiga keputusan yang lahir dari mengukur, bukan mengira:
+     1. **Hex, bukan base64, untuk seluruh isi biner** — alfabet 0-9a-f mustahil mengeja kata kredensial, jadi
+        `TestSealedBundleBytesCarryNoCredentialString` (payload yang disegel berisi semua kata kredensial, isi
+        berkas tetap nol kata) deterministik selamanya; base64 bisa acak mengeja "dsn" dan membuat tes goyah.
+     2. **`Save` polos menolak bundle ber-blok** (`ErrSealedBlock`) — menjatuhkan blok harus keputusan eksplisit
+        (`b.Sealed = nil`), dan `SaveWithSecrets` satu-satunya jalan blok tertulis: opt-in struktural, bukan
+        janji scrub. `Open` membawa bloknya di `Bundle.Sealed` dan `Unseal(passphrase)` membukanya; salah
+        passphrase dan blok rusak sama-sama `ErrWrongPassphrase` karena GCM tidak bisa membedakannya.
+     3. **Save ber-secrets sengaja tidak identik byte** (salt/nonce segar acak per save — itu justru yang menjaga
+        bloknya) dan perbedaannya hanya di entri `secrets.enc`; dedupe hash M4 harus membandingkan tujuh entri
+        entitas saja.
+     Yang tersisa untuk manusia: prompt passphrase di dialog export — milik M3(c) bersama toggle tiga tingkat;
+     pengisian payload dari keychain adalah M6;
    (c) **tiga tingkat ikut-tidaknya definisi koneksi saat export** — bentuk tipenya sudah siap (tingkat 2
      dikemas sebagai satu blok `Address` + `SSHTarget` yang boleh dibiarkan kosong), tinggal toggle
      "sertakan alamat server" di jalur export M4;

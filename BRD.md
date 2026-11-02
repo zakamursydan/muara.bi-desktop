@@ -258,6 +258,7 @@ views.json           [ View ]
 dashboards.json      [ Dashboard ]
 alerts.json          [ Alert ]
 secrets.enc          (opsional) blob AES-256-GCM + salt/nonce, KDF argon2id — KODE BARU, bukan reuse cryptohelper
+                     (terimplementasi 2026-11-02, `internal/secrets/` — lihat paragraf di bawah tabel)
 ```
 
 Import membaca `manifest.json` lebih dulu; versi format atau `min_app_version` yang tidak dikenal → **tolak dengan
@@ -267,13 +268,24 @@ tenant — `Project` desktop dan `Project` web tidak wajib berarti sama.
 
 **Ditegakkan di kode sejak 2026-11-02 (M3, `internal/bundle/`).** Satu hal berubah jadi lebih keras dari teks di atas:
 penolakan kredensial tidak lagi bergantung pada ingatan penulis kode. `Connection`, `Address` dan `SSHTarget`
-**tidak punya field** password/token/key/DSN — satu-satunya tempat secret adalah `secrets.enc`, yang malah
-**ditolak** saat dibaca sampai blok itu benar-benar diimplementasikan. Store juga senantiasa menulis tujuh entri
-di atas (entri kosong jadi `[]`, bukan `null`), dan menolak bundle yang entri wajibnya hilang, yang memuat entri
-bernama tak dikenal, atau yang menuliskan satu nama entri dua kali. Yang **tidak** boleh ditolak saat membaca:
-View yang menyebut alias yang belum ada di mesin ini — itu temuan pre-flight (§5.4), bukan alasan membuang seluruh
-bundle. Perilaku itu dites, dan kumpulan kunci JSON tiap entri ikut ditegakkan di tes, jadi menambah bidang ke
-bentuk simpanan adalah perubahan format yang harus tertulis di sini lebih dulu.
+**tidak punya field** password/token/key/DSN — satu-satunya tempat secret adalah `secrets.enc`. Store senantiasa
+menulis tujuh entri di atas (entri kosong jadi `[]`, bukan `null`), dan menolak bundle yang entri wajibnya hilang,
+yang memuat entri bernama tak dikenal, atau yang menuliskan satu nama entri dua kali. Yang **tidak** boleh ditolak
+saat membaca: View yang menyebut alias yang belum ada di mesin ini — itu temuan pre-flight (§5.4), bukan alasan
+membuang seluruh bundle. Perilaku itu dites, dan kumpulan kunci JSON tiap entri ikut ditegakkan di tes, jadi
+menambah bidang ke bentuk simpanan adalah perubahan format yang harus tertulis di sini lebih dulu.
+
+**`secrets.enc` terimplementasi (2026-11-02, `internal/secrets/` — KDF baru, bukan `cryptohelper`).** Bloknya
+dokumen JSON kecil berversi (`format`/`version`/`kdf`/`cipher`/`time`/`memory`/`threads`/`salt`/`nonce`/`data`):
+argon2id dengan parameter yang tersimpan di envelope-nya sendiri → key 32 byte → AES-256-GCM, salt dan nonce segar
+acak tiap penyimpanan. Seluruh isi biner ditulis **hex** — alfabet 0-9a-f mustahil mengeja kata kredensial mana pun,
+jadi sifat "grep isi bundle = nol string kredensial" berlaku untuk *setiap* blok yang pernah ditulis, bukan hasil
+undian (base64 bisa acak mengeja "dsn"). `Save` polos **menolak** bundle yang membawa blok (`ErrSealedBlock`) —
+menjatuhkan blok harus keputusan eksplisit — dan `SaveWithSecrets` satu-satunya jalan blok tertulis: opt-in
+**struktural**, bukan janji scrub. `Open` membawa bloknya di `Bundle.Sealed` setelah memeriksa bentuknya tanpa KDF;
+salah passphrase dan blok rusak sama-sama `ErrWrongPassphrase` karena GCM tidak bisa membedakannya. Konsekuensi yang
+ditulis di sini karena mengubah M4: dua save ber-`secrets.enc` dari isi yang sama **sengaja tidak identik byte**
+(salt segar adalah justru yang menjaga bloknya), jadi dedupe hash-isi membandingkan tujuh entri entitas saja.
 
 **`Profile` ikut tertulis sebagai tipe, bukan sebagai ide (2026-11-02, `internal/profile/`).** Isi berkas per mesin
 itu `machine` + `targets[]` (`alias`, `host`, `port`, `user`, `ssl_mode`, `secret{kind,label}`, `note`) — dia
