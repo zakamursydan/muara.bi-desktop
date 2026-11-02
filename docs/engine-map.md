@@ -177,6 +177,9 @@ implementasi desktop tidak perlu mengulang policing-nya:
   angka wajib + tanpa spasi. Artinya FR-15 cukup menulis `GiB` dan mengirimnya utuh — tidak ada konversi,
   tidak ada label yang bohong. Yang ditolak engine walau DuckDB menerima: `"-1"` (tanpa batas), `"2 GB"`.
   Kalau `max_memory` tidak di-SET sama sekali DuckDB mengambil **80% RAM**, jadi nilai harus selalu eksplisit.
+- `GuardrailConfig.Threads` (`duckdb.DefaultThreads = 2` bila `0`) — divalidasi `NormalizeThreads` di
+  `NewEngine` (2026-11-02): negatif **ditolak**, nilai di atas `runtime.NumCPU()` **dijepit**. Web memasok ini
+  dari `DUCKDB_THREADS`, desktop dari `threadBudget()`. Detail dan tabel probe di §19.
 - `Session.RegisterFileSource(ctx, viewName, path string) error` (2026-11-02) — mendaftar **satu berkas**
   sebagai temp view lewat reader core DuckDB; pemetaan ekstensi dan bentuk query ada di
   `duckdb.FileSourceQuery` (§15). Nama view divalidasi `sqlident.IsPlain` dan path masuk sebagai string literal
@@ -569,6 +572,51 @@ Artinya `verify-ca` vs `verify-full` tidak bisa dibedakan di sisi driver (Go sel
 **dan** nama host selama `tlsInsecure`/`tlsAllowInvalidCertificates` tidak dipasang), jadi bedanya di Mongo
 hanya menandai niat operator, bukan perilaku berbeda. Yang belum terukur: verifikasi sungguhan terhadap server
 Mongo bersertifikat (butuh infra TLS milik user) — bukti yang ada adalah berkas CA benar-benar dibuka.
+
+## 19. `threads`: dari profil mesin ke `SET threads` (2026-11-02)
+
+Pertanyaan M0 "apakah `threads` perlu ikut profil" tidak bisa dijawab dari sisi desktop saja: angkanya dirakit
+di `engine/duckdb/session_cgo.go` (`NewEngine` → `SET threads=%d` di `NewSession`). Jadi bentuk pekerjaannya dua
+lapis — engine membuka pintunya, tiap produk memberi angkanya sendiri. Probe langsung (DuckDB 1.1.3, mesin 8 core,
+satu koneksi in-memory, `current_setting('threads')` dibaca pada koneksi yang sama):
+
+| `SET threads=` | hasil | arti |
+| --- | --- | --- |
+| tidak pernah disetel | `8` | default DuckDB = **semua core yang terlihat** |
+| `1`, `2`, `4`, `8` | diterima, terbaca kembali persis | tidak ada kejutan di rentang wajar |
+| `0` | `Syntax Error: Must have at least 1 thread!` dan nilai **tetap `8`** | `0` bukan "auto", dan gagalnya SET tidak menghentikan sesi |
+| `-1` | error yang sama, nilai tetap `8` | negatif pun demikian |
+| `999` | **diterima** | tidak ada cap internal DuckDB |
+| `abc` | error cast | |
+
+Empat aturan yang lahir dari tabel itu:
+1. **`0` harus berarti "belum dikonfigurasi", bukan diteruskan.** Go memberikan `0` untuk `int` yang tidak diisi
+   di `GuardrailConfig`, sementara DuckDB menolaknya — kalau diteruskan, kegagalan `SET` tidak membuat sesi jadi
+   aman, hanya membuat konfigurasi **terlihat** jalan (baris `0`/`-1` di atas tetap menyisakan 8 thread).
+   Engine memetakannya ke `DefaultThreads = 2`.
+2. **Negatif gagal di `NewEngine`, bukan di sesi pertama** — preseden `0GiB` dari M1.5: kesalahan konfigurasi
+   harus terdengar saat proses start.
+3. **Cap adalah pekerjaan produk.** DuckDB menerima `999` tanpa protes, jadi `NormalizeThreads` menjepit ke
+   `runtime.NumCPU()`. Penjepitan ini terlihat dari luar karena `current_setting('threads')` mengembalikan angka
+   yang benar-benar berlaku, dan itu yang diuji `TestEngineAppliesConfiguredThreads` (1, 2, 999).
+4. **Dua produk, dua angka.** Web: `DUCKDB_THREADS` default `2`, sebab CPU satu pod saat ramai adalah
+   `threads × DUCKDB_MAX_CONCURRENCY` dan multi-tenant tidak boleh mewarisi "semua core host" cuma karena lupa
+   menyetel. Desktop: `threadBudget() = NumCPU-1` (minimal 1) — satu user, satu sesi, satu core ditinggal untuk
+   jendelanya sendiri.
+
+Batas yang harus ditulis jujur: **`NumCPU-1` adalah kebijakan, bukan hasil ukur.** Yang teruji hanya rantai
+konfigurasi → DuckDB (`TestSpikeStatusReportsEngineDefaults` membaca ulang `current_setting('threads')` dari sesi
+sungguhan, bukan membandingkan dengan konstanta) dan invarian `1 ≤ threadBudget() ≤ NumCPU`
+(`TestThreadBudgetStaysInsideTheMachine`). Dua hal masih asumsi: bahwa satu core cadangan memang membuat UI
+tetap mulus saat query berjalan, dan bahwa `runtime.NumCPU()` adalah jumlah core yang benar-benar boleh dipakai
+di dalam container — `--cpus` membatasi lewat *quota*, bukan affinity, dan itu belum diukur di sini, karena itu
+`.env.example` menyuruh operator menyetelnya sendiri di sana. Pertanyaan performa yang sebenarnya
+("berapa koneksi yang dibuka `postgres_scanner` saat query paralel, dan berapa thread yang masuk akal lewat
+VPN") butuh jaringan nyata, bukan localhost — tetap butir terbuka di PLAN.md M0.
+
+Yang **tidak** ikut berubah: `cmd/spike` dan `MaxMemory` di `NewQueryService`. Spike justru ada untuk membuktikan
+default engine sampai tanpa konfigurasi, dan pemasangan budget memori menunggu UI pengaturan FR-15 karena nilainya
+harus bisa ditimpa user; jumlah thread tidak.
 
 
 

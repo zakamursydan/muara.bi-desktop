@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"muara.bi/engine/duckdb"
@@ -37,6 +38,9 @@ func NewQueryService() (*QueryService, error) {
 		StatementTimeout: 15 * time.Second,
 		// MaxMemory is intentionally empty: the spike must show that the engine
 		// default reaches DuckDB on its own, which is what FR-15 will override.
+		// Threads is not left to the engine default because the desktop is the one
+		// product that owns its machine — see threadBudget.
+		Threads:            threadBudget(),
 		ExtensionDirectory: bundledExtensionDir(),
 	}
 	engine, err := duckdb.NewEngine(cfg)
@@ -154,6 +158,25 @@ func extensionDirFromBinary(exePath string) string {
 		return candidate
 	}
 	return ""
+}
+
+// threadBudget is the desktop's CPU policy: one user, one session at a time, so a
+// query may have almost the whole machine — minus the core the app itself needs to
+// keep drawing the window while DuckDB works. DuckDB's own default, measured, is
+// every visible core, and asking for more cores than the machine has is accepted
+// silently; both are why the app names its number instead of inheriting one.
+//
+// This is a product choice, not a measured threshold: nothing here proves that a
+// query on cores-1 keeps the UI responsive, only that the engine applies the
+// number asked for (TestSpikeStatusReportsEngineDefaults reads it back from
+// DuckDB) and that the number is inside the machine
+// (TestThreadBudgetStaysInsideTheMachine).
+func threadBudget() int {
+	cores := runtime.NumCPU()
+	if cores <= 1 {
+		return 1
+	}
+	return cores - 1
 }
 
 func asText(v any) string {

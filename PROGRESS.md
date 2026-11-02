@@ -250,8 +250,9 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   persis, jadi assert terhadap RAM asli akan membuat CI gagal tanpa ada yang salah. `go test ./...` hijau
   dua paket.
   Yang **belum** dikerjakan: memasang angka ini ke `NewQueryService` (sengaja masih kosong supaya spike terus
-  membuktikan default engine — pemasangan adalah pekerjaan pengaturan FR-15 di M4), dan `threads` yang masih
-  hardcoded 2.
+  membuktikan default engine — pemasangan adalah pekerjaan pengaturan FR-15 di M4). `threads` menyusul
+  **terpasang 2026-11-02** lewat profil mesin sendiri (lihat blok `threads` di §3) — beda dari memori karena
+  jumlahnya tidak perlu slider.
 - **Bundel extension nyata, dan offline terbukti tanpa sudo (2026-11-01, M0):** `cmd/duckdb-bundle`
   (di repo web) dijalankan untuk darwin/arm64 ke folder luar repo → **103 MB** berisi
   `v1.1.3/osx_arm64/{postgres,mysql,sqlite}_scanner.duckdb_extension` (+ tiga `.info` 165–168 byte).
@@ -467,6 +468,33 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   `TestMongoDriverOpensTLSCAFileButNotSSLCaFile` di engine. Belum: verifikasi terhadap server Mongo
   bersertifikat sungguhan (infra TLS milik user) — yang terbukti adalah berkas CA benar-benar dibuka.
   Gerbang empat-mode hijau; `gofmt -l` bersih.
+- **`threads` ikut profil mesin (2026-11-02, penutup butir 1 §4 yang terakhir):** pertanyaan M0
+  "apakah `threads` perlu ikut profil — masih hardcoded 2" tidak bisa dijawab dari repo ini karena angkanya
+  hidup di engine. Urutannya jadi dua langkah: engine diberi pintu (`GuardrailConfig.Threads` +
+  `NormalizeThreads`, knob web `DUCKDB_THREADS` default `2`), lalu desktop memilih angkanya.
+  - **Yang diukur (DuckDB 1.1.3, `SET threads` di mesin 8 core):** tidak pernah disetel → **8** (default DuckDB
+    = semua core); `0` dan `-1` → `Syntax Error: Must have at least 1 thread!` dan **nilai sebelumnya tetap
+    berlaku** — kegagalan SET tidak membuat sesi aman, hanya membuat konfigurasi terlihat jalan; `999` →
+    **diterima**, jadi tidak ada cap internal yang bisa diandalkan; `abc` → error cast.
+  - **Aturan engine:** `0` = "belum dikonfigurasi" → `DefaultThreads = 2` (nilai nol itulah yang Go berikan untuk
+    int yang tidak diisi, padahal DuckDB menolaknya); negatif **ditolak di `NewEngine`** sama seperti `0GiB`;
+    di atas core yang terlihat proses **dijepit** mengikuti preseden `ApplyLimit` — angka yang benar-benar
+    berlaku tetap terbaca dari `current_setting('threads')`, dibuktikan `TestEngineAppliesConfiguredThreads`
+    (1, 2, dan 999 masing-masing kembali persis seperti yang sudah dijepit).
+  - **Profil desktop:** `threadBudget() = runtime.NumCPU()-1`, minimal 1 → **7 di mesin ini**, dipasang di
+    `NewQueryService`. Alasannya: satu user, satu sesi aktif, jadi hampir seluruh mesin boleh dipakai dan satu
+    core ditinggal untuk jendela aplikasinya sendiri. **Ini kebijakan, bukan ambang hasil ukur** — yang terbukti
+    cuma bahwa angkanya sampai ke DuckDB (`TestSpikeStatusReportsEngineDefaults` membaca ulang
+    `current_setting('threads')`, bukan membandingkan dengan angka hardcoded) dan selalu di dalam mesin
+    (`TestThreadBudgetStaysInsideTheMachine`). `max_memory` **tetap** dibiarkan kosong di sini: pemasangannya
+    menunggu UI pengaturan FR-15 karena nilainya harus bisa ditimpa user, sedangkan jumlah thread tidak.
+    `cmd/spike` tidak disentuh — tugasnya justru membuktikan default engine sampai tanpa konfigurasi.
+  - **Yang masih terbuka:** apakah `cores-1` benar-benar lebih baik daripada 2 untuk `ATTACH` lewat jaringan
+    adalah pertanyaan performa dan butuh jalur Postgres non-localhost (infra milik user); dan `runtime.NumCPU()`
+    **belum diukur** di container dengan `--cpus` (quota tidak mengubah affinity), jadi di web angka itu ditulis
+    sebagai batasan yang harus disetel manual, bukan sebagai fakta.
+  - Gerbang empat-mode hijau (engine + web, `CGO_ENABLED=1/0`), `gofmt -l` bersih, `go test ./...` desktop
+    hijau. Detail pengukuran di docs/engine-map.md §19.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -564,15 +592,19 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    ke `NewQueryService` (butuh UI pengaturan FR-15, M4); bundel extension di **linux & windows** —
    langkahnya sudah tertulis di `.github/workflows/desktop.yml`, tinggal dijalankan; **tiga pertanyaan
    Windows** butuh mesin Windows; **CI per-OS** butuh remote + `ENGINE_REPO_TOKEN` (PAT, karena `GITHUB_TOKEN`
-   tidak menyeberang repository dan `replace ../muara.bi-service/backend/engine` menuntut dua repo bersebelahan);
-   dan apakah `threads` perlu ikut profil — sekarang masih hardcoded 2
-   (`engine/duckdb/session_cgo.go`, `NewEngine`) dan pengukurannya butuh jalur Postgres yang bukan localhost.
+   tidak menyeberang repository dan `replace ../muara.bi-service/backend/engine` menuntut dua repo bersebelahan).
    Sudah terjawab 2026-11-01: **cara membaca RAM total per OS** (`internal/meminfo`, tiga OS enam GOARCH
    ter-cross-compile, `hw.memsize` = 8 GiB di mesin ini → `2GiB`), **bundel extension di macOS**
    (103 MB, ATTACH terbukti dari folder hanya-baca dengan HOME kosong), **minimum macOS = 14 (Sonoma)**
    lewat pin `CGO_LDFLAGS` (temuan 4 di §3 sudah dikoreksi dan §13 engine-map menutup pertanyaannya), dan
    **artefak `.app` macOS** (`build/macos-app.sh` → `/Applications/muara-bi.app`, `LSMinimumSystemVersion`
    tertulis, connector dimuat dari dalam bundle oleh `bundledExtensionDir()`).
+   Sudah terjawab 2026-11-02: **"apakah `threads` perlu ikut profil"** — ya, dan tidak lagi hardcoded.
+   Engine menerima `GuardrailConfig.Threads` (`NormalizeThreads`: 0 → default 2, negatif ditolak di startup,
+   di atas core yang terlihat dijepit), desktop memasang `threadBudget() = NumCPU-1` = **7 di mesin ini**,
+   dibaca kembali dari `current_setting('threads')`. Yang **tersisa** dari pertanyaan itu cuma sisi performa:
+   apakah `cores-1` lebih baik daripada 2 untuk `ATTACH` lewat jaringan — tetap butuh jalur Postgres yang
+   bukan localhost.
    Cek cepat oleh user: `cd frontend && npm run build` (Node milik GoLand, lihat §5), lalu
    `sh build/macos-app.sh <folder-bundle>` dan jalankan binernya dari shell dengan
    `MUARA_SPIKE_SQLITE_FILE` dan/atau `MUARA_SPIKE_PG_DSN` di-set (resep §5) — klik "Attach SQLite fixture"

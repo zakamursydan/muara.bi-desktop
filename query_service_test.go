@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 
 	"muara.bi/engine/duckdb"
@@ -29,12 +31,33 @@ func TestSpikeStatusReportsEngineDefaults(t *testing.T) {
 	if status.MaxMemory != "2.0 GiB" {
 		t.Errorf("MaxMemory = %q, want the engine default 2.0 GiB", status.MaxMemory)
 	}
-	if status.Threads != "2" {
-		t.Errorf("Threads = %q, want 2", status.Threads)
+	// Threads is the opposite of MaxMemory: the desktop names its own number, so
+	// what the window shows must be the value the app chose and not DuckDB's
+	// all-cores default. The read-back is the proof — DuckDB keeps the previous
+	// setting when a SET threads fails, so a config that never applied would still
+	// print a plausible number here if this test compared against nothing.
+	if want := strconv.Itoa(threadBudget()); status.Threads != want {
+		t.Errorf("Threads = %q, want the profile value %q", status.Threads, want)
 	}
 	if status.DuckDBVersion == "" {
 		t.Error("DuckDBVersion is empty, so the engine is not really answering")
 	}
+}
+
+// The profile owns its CPU number, so the invariant is its own: DuckDB accepts any
+// positive count — 999 was measured on an 8-core host — and refuses zero and
+// negatives, so a policy outside 1..cores minus one would only be caught by the
+// engine at startup.
+func TestThreadBudgetStaysInsideTheMachine(t *testing.T) {
+	cores := runtime.NumCPU()
+	got := threadBudget()
+	if got < 1 || got > cores {
+		t.Errorf("threadBudget() = %d, want 1..%d on this host", got, cores)
+	}
+	if cores > 1 && got >= cores {
+		t.Errorf("threadBudget() = %d on a %d-core host, want a core left for the window", got, cores)
+	}
+	t.Logf("this machine: %d visible cores -> threads %d", cores, got)
 }
 
 func TestSpikeQueryGuardrails(t *testing.T) {

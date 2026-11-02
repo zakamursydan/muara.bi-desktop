@@ -188,7 +188,8 @@ Empat aturan mengikat:
    terjangkau — sedang VPN?" bukan "password salah".
 
 Satu hal yang belum terukur dan jadi catatan M0: scanner DuckDB dapat membuka **lebih dari satu koneksi** per
-query paralel (paralelisme diatur `threads`, `session_cgo.go:39`). Lewat VPN itu berarti latensi berlipat dan
+query paralel (paralelisme diatur `threads` — sejak 2026-11-02 angkanya datang dari profil mesin,
+`threadBudget()` di desktop dan `DUCKDB_THREADS` di web, bukan hardcoded). Lewat VPN itu berarti latensi berlipat dan
 batas `max_connections` server jadi terlihat — angka nyatanya dicari di spike, bukan dikira-kira di sini.
 
 ## 6. Model data & format berkas

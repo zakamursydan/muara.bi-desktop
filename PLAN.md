@@ -86,7 +86,8 @@ Keluaran: `muara.bi/engine` sebagai modul Go; web tidak lagi punya salinan logik
       jadi settings menampilkan keduanya bersama — dan ini plafon, bukan alokasi: setelah melewatinya DuckDB
       spill ke `temp_directory`, sehingga budget yang lebih besar dari RAM melambatkan query, tidak langsung
       mematikan aplikasi.
-      `threads` (baris `:39`) sengaja tetap hardcoded 2 dan ditandai di kode — masuk M0.
+      `threads` sempat sengaja dibiarkan hardcoded 2 di titik ini dan ditandai untuk M0 — **ditutup
+      2026-11-02** lewat `GuardrailConfig.Threads` (lihat butir `threads` di bawah).
       Ditest: `TestNormalizeMaxMemory` (CGO-free), `TestEngineAppliesConfiguredMemoryBudget` dan
       `TestEngineRejectsUnusableMemoryBudget` (CGO, bandingkan **byte** lewat `current_setting`).
 - [x] **Kontrak hasil `truncated` (2026-10-31, M1.4)** — `duckdb.QueryResult` menambah `row_limit`,
@@ -218,7 +219,19 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       menguntungkan, bukan asumsi). `TestRAMBudgetReachesDuckDB` membuktikan string-nya sampai sebagai byte
       yang benar — dengan ukuran RAM **sintetis**, karena gema satu-desimal DuckDB tidak bisa dibalik persis
       pada RAM ganjil. Yang masih terbuka: angka ini **belum dipasang** ke `NewQueryService` (makanannya
-      pengaturan FR-15 di M4) dan `threads` masih 2.
+      pengaturan FR-15 di M4).
+- [x] **`threads` ikut profil mesin (2026-11-02):** pertanyaan lama "masih hardcoded 2 di `NewEngine`" ditutup
+      dengan dua langkah, karena angkanya hidup di engine. Engine: `GuardrailConfig.Threads` +
+      `NormalizeThreads` — `0` berarti "belum dikonfigurasi" dan jadi `DefaultThreads = 2` (DuckDB menolak `0`
+      dan **mempertahankan nilai lama** saat `SET` gagal, jadi angka itu tidak boleh diteruskan), negatif
+      ditolak di `NewEngine`, dan nilai di atas core yang terlihat proses **dijepit** (DuckDB menerima `999`
+      tanpa cap internal). Web: knob `DUCKDB_THREADS` default `2` karena CPU satu pod =
+      `threads × DUCKDB_MAX_CONCURRENCY`. Desktop: `threadBudget() = NumCPU-1` → **7 di mesin ini**, dipasang
+      di `NewQueryService`; satu core ditinggal untuk jendela aplikasi. Ini **kebijakan produk, bukan ambang
+      hasil ukur** — yang terbukti adalah angkanya sampai ke DuckDB (`current_setting('threads')` dibaca ulang
+      di `TestSpikeStatusReportsEngineDefaults`) dan selalu di dalam mesin. Pengukuran performanya (apakah
+      `cores-1` lebih baik daripada 2 lewat jaringan) tetap terbuka di butir bawah.
+      Detail: [docs/engine-map.md](docs/engine-map.md) §19.
 - [x] **Deployment target macOS ditetapkan: minimum macOS 14 (Sonoma), dipin lewat `CGO_LDFLAGS`**
       (2026-11-01, bukti di [docs/engine-map.md](docs/engine-map.md) §13). Link biner app mengeluarkan 50
       warning `object file ... was built for newer 'macOS' version (14.0) than being linked (11.0)` dan
@@ -256,9 +269,10 @@ lihat [docs/engine-map.md](docs/engine-map.md) §8. Butir `- [x]` di bawah hanya
       (`FATAL: could not open file "global/pg_filenode.map": I/O error`, stack user + disk 94%) — aplikasi
       sudah memetakan connector-nya sebelum kegagalan itu, jadi bukan bug desktop.
 - [ ] Diukur lewat jaringan nyata, bukan lewat localhost: **berapa koneksi yang dibuka `postgres_scanner` per
-      query paralel** (`threads` disetel di `NewEngine`, `engine/duckdb/session_cgo.go`), latensi round-trip,
-      dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya menentukan batas
-      `max_connections` yang layak dan apakah `threads` perlu ikut profil, bukan asumsi.
+      query paralel** (`threads` sekarang dari profil: `threadBudget()` → `GuardrailConfig.Threads`),
+      latensi round-trip, dan berapa lama forwarder bastion bertahan hidup saat VPN putus-nyambung. Angkanya
+      menentukan batas `max_connections` yang layak dan **apakah `NumCPU-1` jumlah yang benar** — angka profil
+      itu sekarang kebijakan, bukan hasil ukur, dan pengukuran inilah yang mengubahnya jadi fakta.
 
 **Exit:** installer dev berjalan di Windows dan macOS tanpa peringatan Gatekeeper/SmartScreen untuk
 skenario uji, query federated nyata jalan offline, dan CI per-OS hijau. Kalau salah satu pertanyaan
