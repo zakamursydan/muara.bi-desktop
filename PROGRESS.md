@@ -848,11 +848,20 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
         entitas saja.
      Yang tersisa untuk manusia: prompt passphrase di dialog export — milik M3(c) bersama toggle tiga tingkat;
      pengisian payload dari keychain adalah M6;
-   (c) **tiga tingkat ikut-tidaknya definisi koneksi saat export** — bentuk tipenya sudah siap (tingkat 2
-     dikemas sebagai satu blok `Address` + `SSHTarget` yang boleh dibiarkan kosong), tinggal toggle
-     "sertakan alamat server" di jalur export M4;
-   (d) **batas jumlah dan ukuran berkas sumber** di folder bundle — angka awal sudah terukur (lihat §3), tapi
-     batas yang pantas baru bisa ditetapkan setelah berkas data benar-benar ikut dipindah.
+   (c) **tiga tingkat ikut-tidaknya definisi koneksi saat export — mekanismenya selesai 2026-11-02
+     (`Bundle.WithoutServerDetails()`, `internal/bundle/export_test.go`).** Tingkat 1 (alias/driver/database/
+     `schema_filter`/note) tak tersentuh, tingkat 2 (blok `Address` + `SSHTarget` di **semua** koneksi) dibuang
+     sebagai **satu keputusan**, bukan satu flag per field; sumber file/sqlite tak berubah karena path adalah
+     tingkat 1 di bawah §5.5; blok `Sealed` ikut terbawa (keputusan tingkat 3 ortogonal terhadap tingkat 2).
+     Salinan yang dibuang detailnya tetap save→open bersih, dan bundle asli tidak tersentuh. Toggle UI
+     "sertakan alamat server" (default NYALA) + prompt passphrase tetap milik dialog export M4 — yang baru ada
+     sekarang adalah mekanisme di belakangnya, teruji dari Go;
+   (d) **batas jumlah dan ukuran berkas sumber** di folder bundle — angka yang bisa diukur tanpa M4 sudah
+     terukur 2026-11-02 (spike sementara, lalu dibuang; tes permanen 200 sumber ditinggal): membuka+me-mount
+     10/100/500 sumber file = **12,6 / 51 / 815 ms** — superlinear, jadi batas jumlah akan menggigit di ratusan
+     sumber, bukan ribuan; CSV 2 juta baris **31,8 MB** = open 99 ms + `count(*)` 210 ms — ukuran tidak menyiksa
+     laptop, jadi batas ukuran kelak melindungi **transfer/import**, bukan mesin. Angka batasnya sendiri tetap
+     ditetapkan M4 waktu berkas benar-benar ikut dipindah, persis alasan yang ditulis PLAN.md.
 3. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
    di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:

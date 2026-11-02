@@ -157,6 +157,10 @@ pilih cakupan "hanya View & Dashboard" — resolver dependensi akan menyatakan "
 Kredensial ber-passphrase tetap tersedia tapi **tidak disarankan**: kunci yang dikirim lewat chat tidak bisa
 ditarik kembali, dan rotasi jadi milik bersama.
 
+Mekanisme tingkat 2 terimplementasi di `Bundle.WithoutServerDetails()` (2026-11-02, `internal/bundle/`): salinan
+bundle tanpa blok `Address`/`SSH` pada semua koneksi, satu keputusan bukan satu flag per field; sumber file/sqlite
+dan blok `Sealed` tak tersentuh. Toggle UI-nya (default nyala) hidup di dialog export M4.
+
 ### 5.5 Path file relatif
 Karena sumber file masuk v1, yang bersifat mesin-lokal bukan kredensial melainkan **path-nya**. Bentuk kanonik di
 bundle adalah path **relatif terhadap folder berkas `.muara`**, dengan `/` sebagai pemisah — bukan `\` — supaya

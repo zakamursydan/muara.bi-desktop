@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,63 @@ func TestOpeningASecondBundleLosesTheFirstOnesAliases(t *testing.T) {
 	}
 	if asText(res.Rows[0]["n"]) != "6" {
 		t.Errorf("lines count = %v, want 6 rows", res.Rows)
+	}
+}
+
+// A bundle may legitimately name many file sources, and every one of them has
+// to come out of a single Open with its own mount line — the count limit M4
+// picks will be enforced on top of this, not by it silently dropping sources.
+// The measured cost of this shape is in PROGRESS §3: 500 sources mount in
+// ~0.8 s on this machine, so the test stays at 200 and asserts no timing.
+func TestOpeningABundleWithManySourcesMountsEveryOne(t *testing.T) {
+	service, err := NewQueryService()
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	defer service.Close()
+
+	const sources = 200
+	dir := t.TempDir()
+	data := filepath.Join(dir, "data")
+	if err := os.MkdirAll(data, 0o755); err != nil {
+		t.Fatalf("data folder: %v", err)
+	}
+	b := &bundle.Bundle{}
+	for i := 0; i < sources; i++ {
+		name := fmt.Sprintf("src_%03d.csv", i)
+		if err := os.WriteFile(filepath.Join(data, name), []byte("id\n1\n"), 0o644); err != nil {
+			t.Fatalf("fixture %s: %v", name, err)
+		}
+		b.Connections = append(b.Connections, bundle.Connection{
+			ID:     fmt.Sprintf("c-%03d", i),
+			Alias:  fmt.Sprintf("src_%03d", i),
+			Driver: bundle.DriverFile,
+			File:   &bundle.FileSource{Path: filepath.Join(data, name)},
+		})
+	}
+	path := filepath.Join(dir, "many.muara")
+	if err := bundle.Save(path, b); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	info, err := service.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if len(info.Mounts) != sources {
+		t.Fatalf("mounts = %d lines, want one per source (%d)", len(info.Mounts), sources)
+	}
+	for _, m := range info.Mounts {
+		if !m.Mounted {
+			t.Errorf("source %s not mounted: %s", m.Name, m.Reason)
+		}
+	}
+	res, err := service.Run("SELECT COUNT(*) AS n FROM src_199")
+	if err != nil {
+		t.Fatalf("the last source should answer: %v", err)
+	}
+	if asText(res.Rows[0]["n"]) != "1" {
+		t.Errorf("src_199 count = %v, want 1", res.Rows)
 	}
 }
 

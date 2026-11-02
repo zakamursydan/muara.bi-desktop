@@ -437,7 +437,7 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       harus ikut dibangun: hapus project tidak menghapus View yang dipin-nya; export cakupan "Proyek" menarik
       View yang direferensi, bukan dimiliki; import bundel yang dua kali harus **idempoten** (dedupe by
       ID + hash isi), dan View hasil pin tidak terbawa dua kali ke bundel lain.
-- [ ] **Tiga tingkat ikut-tidaknya definisi koneksi saat export** (menggantikan §5.3/§5.4 yang hanya
+- [x] **Tiga tingkat ikut-tidaknya definisi koneksi saat export** (menggantikan §5.3/§5.4 yang hanya
       mengenal "alias + driver, tanpa host"):
   - selalu ikut: alias, driver, nama database, filter skema, catatan — tanpa ini SQL tidak resolve;
   - ikut, bisa dimatikan: **host, port, user, target SSH, sslmode**. Ini bukan secret, tapi juga bukan
@@ -445,6 +445,13 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
     NYALA untuk berbagi dengan rekan yang menunjuk server yang sama;
   - tidak pernah ikut default: password/token/key. Hidup di keychain mesin masing-masing; hanya lewat
     `secrets.enc` ber-passphrase kalau user memilihnya.
+      **Terukur 2026-11-02 (`Bundle.WithoutServerDetails`, M3c):** tingkat 2 dibuang sebagai **satu
+      keputusan** — `Address` dan `SSH` bersama-sama, di copy bundle baru, tanpa menyentuh bundle
+      pemanggil. Tingkat 1 terbukti bertahan (alias/driver/database/schema_filter/note), path `file`/
+      `sqlite` tidak ikut dibuang (path itu separuh keberadaan sumbernya, aturan §5.5), dan blok
+      ter-seal tingkat 3 **ortogonal**: ikut tersalin, `Save` polos tetap menolak, `Unseal` tetap
+      bekerja — kombinasi "toggle alamat mati + toggle kredensial nyala" teruji round-trip utuh.
+      Default NYALA dan prompt passphrase adalah perilaku dialog export M4; mekanismenya sudah ada.
 - [ ] **Ekspor hasil ke CSV / XLSX = reuse, bukan fitur baru.** `internal/exporter/` sudah punya
       `WriteXLSX` (excelize v2.11.0, streaming writer, satu worksheet per sheet, header bergaya) dan
       CSV/JSON. Pure Go, tanpa CGO. Yang perlu diputuskan: jalur ekspor **tidak boleh** mewarisi LIMIT
@@ -488,10 +495,14 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       relatif terhadap folder barunya.
       **Angka awal untuk batasnya:** bundle kosong 1189 byte; 1000 View dengan `builder_state` + `raw_sql`
       berbeda = 625 KB `views.json` tak terkompresi → **16 KB** di dalam zip. Jadi ukuran bundle ditentukan
-      berkas data di *samping* `.muara`, bukan definisi di dalamnya — sisa butir ini tinggal mengukur jumlah
-      & ukuran file sumber yang ikut folder bundle, dan itu baru punya angka nyata di M4 waktu berkasnya
-      benar-benar ikut dipindah. Exit "dua berkas di folder berbeda di mesin yang sama tetap resolve" sudah
-      terbukti dua lapis: `TestBundleRelativeSourceSurvivesTheFolderMoving` (engine) dan
+      berkas data di *samping* `.muara`, bukan definisi di dalamnya. Yang bisa diukur tanpa langkah
+      salin-berkas M4 sudah terukur (2026-11-02, spike sementara + tes permanen 200 sumber):
+      membuka+me-mount 10/100/500 sumber file = **12,6 / 51 / 815 ms** — superlinear, jadi batas jumlah akan
+      menggigit di ratusan sumber, bukan ribuan; CSV 2 juta baris **31,8 MB** = open 99 ms + `count(*)`
+      210 ms — ukuran tidak menyiksa laptop, jadi batas ukuran kelak melindungi **transfer/import**, bukan
+      mesin. Angka batasnya sendiri tetap ditetapkan M4 waktu berkas benar-benar ikut dipindah. Exit "dua
+      berkas di folder berbeda di mesin yang sama tetap resolve" sudah terbukti dua lapis:
+      `TestBundleRelativeSourceSurvivesTheFolderMoving` (engine) dan
       `TestBundleAndDataInDifferentFoldersStillResolve` (store).
 - [x] **Aplikasi bekerja pada satu berkas terbuka + `Profile` lokal** (2026-11-02, `document.go`, `dialogs.go`,
       `internal/profile/`; BRD §5.1 + §6): `QueryService` punya `Open` / `NewUntitled` / `Save` / `SaveAs` /

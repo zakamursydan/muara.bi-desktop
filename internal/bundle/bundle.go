@@ -251,6 +251,28 @@ type Bundle struct {
 	Sealed []byte
 }
 
+// WithoutServerDetails returns a copy of the bundle with tier 2 of §5.4
+// removed: every connection keeps alias, driver, database, schema filter and
+// note — without those the SQL does not resolve, so tier 1 always travels —
+// while the address and SSH blocks are dropped as one decision, the export
+// toggle "sertakan alamat server" turned off. The caller's bundle keeps what
+// it was given.
+//
+// File and sqlite sources are not affected: their path is the half without
+// which the source does not exist at all, so it rides with tier 1 under the
+// §5.5 rule. Tier 3 is untouched too — the sealed credential block is an
+// orthogonal decision, made through SaveWithSecrets or by clearing Sealed.
+func (b *Bundle) WithoutServerDetails() *Bundle {
+	out := *b
+	out.Connections = make([]Connection, len(b.Connections))
+	copy(out.Connections, b.Connections)
+	for i := range out.Connections {
+		out.Connections[i].Address = nil
+		out.Connections[i].SSH = nil
+	}
+	return &out
+}
+
 // checkRefs is true when writing, false when reading. The app that owns the
 // data must not be able to save a dangling reference; the app that imports it
 // must be able to open it and say which alias or View is missing rather than
