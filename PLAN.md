@@ -358,12 +358,18 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       Pemetaan mode: `require|verify-ca|verify-full` → `tls=true`; `disable` dan fallback `allow|prefer` tetap
       polos, karena form web mengirim `prefer` untuk semua driver dan memaksanya ke TLS akan merusak profil
       yang hari ini jalan. CA di samping mode tanpa TLS ditolak di titik tulis.
+- [x] **UI kolom CA di form koneksi web (2026-11-02).** Tiga usulan wireframe dikonfirmasi user, lalu dipasang:
+      kolomnya per-driver mengikuti aturan yang sudah diukur (`sslrootcert` + gerbang mode untuk Postgres,
+      `tlsCAFile` + nyala/mati untuk Mongo, **tampil tapi nonaktif dengan alasan** untuk MySQL/SQLite, input path
+      teks bukan file picker, tanpa saklar TLS baru). Pekerjaan yang membuatnya aman justru di belakangnya:
+      `EnvironmentInfoResponse` tidak pernah mengembalikan `ssl_mode`/`root_cert`, jadi form yang selalu mulai dari
+      `"prefer"` + CA kosong itu **menghapus path CA tersimpan setiap kali environment lama disimpan ulang** —
+      sekarang keduanya ikut kembali (password & uri tetap write-only karena bisa membawa kredensial).
+      Tes round-trip + gerbang empat-mode hijau; uji klik di `/sources` menunggu `muara_api`/`muara_web`
+      dibangun ulang (infra milik user).
 - [ ] **Sisa CA privat (BRD §10 butir 8):** **path relatif CA ikut §5.5** begitu bundle `.muara` jadi storage
-      (M3), dan **UI**: web baru menerima `root_cert` lewat API, form koneksi belum punya kolomnya — dan kolom
-      itu harus per-driver, karena tiga driver punya tiga aturan berbeda yang sudah diukur
-      (`sslrootcert` + gerbang mode untuk Postgres, `tlsCAFile` + nyala/mati untuk Mongo, tidak ada untuk MySQL).
-      **Wireframe per-driver sudah dibuat 2026-11-02 dan menunggu konfirmasi scope** sebelum ada baris kode
-      frontend (input path teks, kolom nonaktif untuk MySQL/SQLite, tanpa saklar TLS baru).
+      (M3) — jalur desktop belum menyimpan CA di manapun, dan `uri`/`password` write-only masih berarti form
+      web menimpa nilai lama dengan yang kosong (dikonfirmasi sebagai celah yang diketahui, bukan bug form).
 
 **Exit:** tree menampilkan kolom Mongo dan Postgres berdampingan; satu query lintas dua alias jalan;
 pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang bastion/VPN terbukti jalan pada

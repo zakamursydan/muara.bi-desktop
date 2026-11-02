@@ -404,8 +404,9 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      (`crypto/x509`) supaya `TLSConfig.RootCAs` bisa dipakai sebagai bukti, dan satu tes injeksi: password berisi
      `sslrootcert=/etc/hosts` tidak boleh menambah parameter (pgx akan error kalau mencoba membacanya).
      Gerbang empat-mode hijau; `gofmt -l` bersih.
-  Belum: CA untuk **MongoDB** (`tlsCAFile`, masih mungkin karena Mongo lewat driver Go), path relatif CA saat
-  bundle pindah mesin (M3), dan UI form web (hari ini `root_cert` hanya bisa lewat API).
+  Belum saat blok ini ditulis: CA untuk **MongoDB** (`tlsCAFile`, masih mungkin karena Mongo lewat driver Go —
+  **ditutup hari yang sama**), path relatif CA saat bundle pindah mesin (M3), dan UI form web
+  (**dibuat hari yang sama**, `root_cert` tidak lagi hanya bisa lewat API).
 - **Builder MySQL dibetulkan + grammar `mysql_scanner` diukur per karakter (2026-11-02, temuan 2026-10-31):**
   cacat sampingan yang muncul waktu membaca builder CA — `attachConnection` web merakit
   `%s:%s@tcp(%s:%d)/%s`, bentuk driver Go, dan **scanner menolaknya** (`Invalid dsn … - expected key=value
@@ -559,7 +560,8 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     `<Select>`, hanya API-nya yang terbuka.
   - Belum ada tempat untuk CA privat (`rootcert`); default `sslmode=disable` salah untuk DB internal
     self-signed. **Sisi Postgres ditutup 2026-11-02** (`root_cert` dirakit sebagai `sslrootcert`; lihat blok CA
-    di §3). Masih terbuka: MySQL/Mongo, UI form, dan path relatif CA untuk bundle → FR-1 + butir 8 §10 BRD.
+    di §3). Mongo menyusul hari yang sama (`tlsCAFile`), MySQL ditutup sebagai "tidak bisa di jalur scanner", dan
+    **UI form web dibuat 2026-11-02**. Yang tinggal: path relatif CA untuk bundle (M3) → FR-1 + butir 8 §10 BRD.
   - **Kontrak pemotongan (M1.4, diverifikasi 2026-10-31):** engine tidak menebak "halaman penuh = terpotong".
     Statement dijalankan dengan `LIMIT cap+1`; kalau baris ke-(cap+1) benar-benar ada, hasilnya ditandai
     `truncated_by=row_limit` dan baris penanda itu dibuang. 12 baris dengan cap 12 → **tidak** ditandai
@@ -623,13 +625,15 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
 2. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
    di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
-   (a) **UI** — web hanya menerima `root_cert` lewat API; form koneksi belum punya kolomnya, dan sesuai cara
-   kerja yang disepakati: **wireframe/mockup dulu sebelum koding UI**, bukan langsung input. Wireframe sudah
-   disajikan 2026-11-02 (satu drawer, empat state driver, pesan validasi yang sama dengan yang dipakai API) dan
-   membawa **tiga usulan yang masih menunggu konfirmasi**: input path teks (bukan file picker — berkasnya hidup
-   di mesin API, browser tidak bisa memberi path absolut mesin lain), kolom **tampil tapi nonaktif** untuk
-   MySQL/SQLite (bukan disembunyikan, supaya operator tahu connectornya memang tidak membaca CA), dan tanpa
-   saklar TLS baru (mode `ssl_mode` yang sudah ada yang menentukan nyala/mati);
+   (a) **UI — selesai 2026-11-02.** Tiga usulan wireframe disetujui user dan dipasang di
+   `components/sources/environment-form.tsx`: input path teks (bukan file picker — berkasnya hidup di mesin API),
+   kolom **tampil tapi nonaktif** untuk MySQL/SQLite dengan alasan connectornya, tanpa saklar TLS baru;
+   postgres/mongodb dapat hints kata kunci yang benar (`sslrootcert` vs `tlsCAFile`) dan peringatan inline begitu
+   path diisi di mode yang tidak membacanya — kombinasi yang sama persis dengan yang ditolak 400 di titik tulis.
+   Yang ternyata wajib dikerjakan lebih dulu: `EnvironmentInfoResponse` **tidak mengembalikan** `ssl_mode` dan
+   `root_cert`, sedangkan form selalu mulai dari `"prefer"` + CA kosong, jadi setiap kali environment lama dibuka
+   lalu disimpan, mode TLS ditulis ulang dan path CA tersimpan **hapus diam-diam**. Sekarang keduanya ikut
+   dinormalisasi lalu dikembalikan (password & uri tetap write-only); lihat blok CA UI di `PROGRESS.md` web §3.
    (b) **MySQL — selesai 2026-11-02, dan jawabannya "tidak bisa di jalur DuckDB".** Builder
    `%s:%s@tcp(%s:%d)/%s` yang ternyata **ditolak scanner** itu sudah diganti dengan `duckdb.MySQLDSN` di engine
    (grammar lengkap dan tabel hasil probe ada di engine-map §17), dan `ssl_ca` tidak pernah ada tempatnya:
