@@ -554,6 +554,16 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     `TestCatalogQueriesBindTheAliasAndKeepTheirOrder`; gerbang empat-mode web `GATE-DONE fail=0` dan verifikasi
     desktop `DESKTOP-DONE fail=0` (CGO=1 build/vet/test + `meminfo` cross-build + "CGO=0 tidak boleh menghasilkan
     biner app"), `gofmt` bersih di dua repo.
+- **Penanda pemotongan sampai ke UI (2026-11-02, butir FR-3 selesai; FR-11 tetap M4):** keempat field yang
+  sudah dikirim engine sejak M1.4 akhirnya dirender, dan sisi yang diam ada di **web**, bukan di engine — grep
+  `truncated` di `frontend/` web menghasilkan nol, jadi sejak hari itu hasil yang dipotong guardrail tetap
+  terbaca sebagai jawaban utuh. Detail lengkap di `PROGRESS.md` web §3 (blok penanda pemotongan). Yang menyangkut
+  repo ini: (a) grid spike sudah menampilkan `truncated` + `truncated_by` sejak M0 tetapi **tanpa `capped_sources`**
+  dan dengan alasan dieja mentah (`row_limit`), sekarang keduanya berselaras dengan web — membandingkan lewat
+  `TruncateReason` hasil binding, bukan string literal (engine-map §9); (b) badge-nya pindah ke token `--warn`
+  BRD §12.2 karena `--accentSoft` membacanya chip informasi; (c) **FR-11 (pre-flight bundle) dikeluarkan dari
+  butir ini atas keputusan user** — ia butuh bentuk `.muara` dulu, dan itu M4. Bukti: `vite build` bersih dan
+  kedua kalimat penanda + `source_cap` ikut terbawa di bundle, gerbang desktop `DESKTOP-DONE fail=0`.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -764,6 +774,13 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   `df` di tengah build bukan selalu ruang yang hilang permanen: selama build kedua sisa turun ke
   **820 MiB**, lalu kembali ke 1,9 GiB setelah `bin/` (62 MiB) dihapus dan linker temp selesai — jadi angka
   `df` saat build sedang jalan tidak bisa dibaca sebagai "ruang untuk keputusan besar".
+- **Akibat nyata dari disk penuh itu (terukur 2026-11-02):** Redis sample di 127.0.0.1:6379 **menolak semua
+  write** — `MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk` —
+  sehingga empat tes `MUARA_E2E_REDIS` di modul web (`internal/cache/query_cache_redis_test.go`) gagal di
+  `Ping`, bukan karena kode. Tanpa env itu tesnya `t.Skip`, jadi `go test ./...` tetap hijau; tapi setiap
+  verifikasi yang butuh Redis sungguhan (cache, semaphore concurrency) menunggu user membereskan disk/container.
+  Ini juga jalur kegagalan baru untuk diperhatikan di produk: API yang sedang berjalan tetap bisa membaca cache
+  lama sementara **setiap** penulisan hasil gagal.
 - Perintah build yang benar, dan urutannya wajib (dist di-gitignore, `go:embed` membutuhkannya lebih dulu):
 
   ```sh

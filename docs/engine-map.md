@@ -234,7 +234,7 @@ jadi bentuk yang sampai ke UI adalah campuran dua gaya yang harus ditulis ekspli
 
 | Sumber | Field yang terlihat di JS |
 |---|---|
-| `duckdb.QueryResult` (tag Go snake_case) | `columns`, `rows`, `row_count`, `duration_ms`, `row_limit`, `truncated`, `truncated_by` |
+| `duckdb.QueryResult` (tag Go snake_case) | `columns`, `rows`, `row_count`, `duration_ms`, `row_limit`, `truncated`, `truncated_by`, `capped_sources` |
 | Struct desktop (`EngineStatus`) | `duckdbVersion`, `maxMemory`, `threads`, `tempDirectory`, `extensionDirectory` |
 
 Tiga hal lain yang terbukti di jembatan ini:
@@ -245,6 +245,10 @@ Tiga hal lain yang terbukti di jembatan ini:
   `internal/service`; dua konsumen, dua titik panggil, satu implementasi.
 - Kontrak M1.4 bertahan melintasi serialisasi: `SELECT * FROM range(20000)` dengan cap default
   menghasilkan `row_count = 10000`, `truncated = true`, `truncated_by = "row_limit"` di JS.
+- Binding juga mengekspor **`TruncateReason`** (`bindings/muara.bi/engine/duckdb/models.js:151`), jadi UI
+  membandingkan `truncated_by` dengan `TruncateReason.TruncateSourceCap`, bukan dengan string literal — ejaan
+  alasannya tetap milik engine. Sejak 2026-11-02 badge grid spike memakainya dan ikut menampilkan
+  `capped_sources`: `source_cap` tanpa nama view yang terpotong tidak memberi pembaca apa-apa.
 - Metode service yang **diekspor** otomatis jadi binding, termasuk `Close()`. Tidak berbahaya di spike
   (aset hanya lokal), tapi produk tidak boleh memberi webview tombol untuk mematikan session — nanti pakai
   `application.ServiceShutdown` (`ServiceShutdown() error`) atau nama yang tidak diekspor.

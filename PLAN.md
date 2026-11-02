@@ -324,9 +324,21 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       dicoba ulang 2026-11-02 lewat `AttachPostgres`. Mengubah JSON sekarang = menebak apa yang pgx kembalikan
       untuk `is_nullable`/`pg_description`. Detail pengukuran di `docs/engine-map.md` §21.
       Ini prasyarat FR-2, FR-5, FR-10.
-- [ ] Penanda pemotongan **sampai ke UI**: sisinya engine sudah selesai di M1.4 (`MongoMount.Truncated` →
-      `QueryResult.TruncatedBy = source_cap`), yang tersisa adalah menampilkan `truncated`/`truncated_by`/
-      `capped_sources` di result grid (FR-3) dan di pre-flight bundle (FR-11).
+- [x] Penanda pemotongan **sampai ke UI** — selesai 2026-11-02 untuk FR-3. Engine sudah memutuskannya sejak
+      M1.4 (`MongoMount.Truncated` → `QueryResult.TruncatedBy = source_cap`), dan **web hanya mengirim**
+      keempat field itu tanpa pernah membacanya (grep `truncated` di `frontend/` = nol): guardrail membuang
+      baris, layar tetap menulis "10.000 baris". Sekarang satu komponen (`components/query/truncation-note.tsx`)
+      merender `truncated`/`truncated_by`/`capped_sources`/`row_limit` di lima permukaan — callout amber di Data
+      Studio, drawer widget, editor semantic model; sufiks + ikon ⚠ di judul kartu widget canvas dan halaman
+      share/embed (permukaan publik sebelumnya tidak punya baris metadata sama sekali). Grid spike desktop ikut
+      melengkapinya: `capped_sources` tampil dan alasannya tidak lagi dieja mentah, dibandingkan lewat
+      `TruncateReason` dari binding. Amber, bukan merah, karena query-nya **berhasil** — yang sebagian hanya
+      cakupannya. **Pre-flight bundle (FR-11) sengaja dikeluarkan dari butir ini** atas keputusan user dan tetap
+      jadi pekerjaan M4. Bukti: `internal/dto/response/query_test.go` (nama key di wire),
+      `engine/duckdb/result_wire_test.go` (flag lolos JSON round-trip, CGO=1 & CGO=0), DOM hasil render route
+      sementara (penanda muncul 3×+2×, ikon judul 2×, hasil utuh = nol elemen), `tsc --noEmit` + `next build`
+      bersih, `vite build` desktop bersih, gerbang empat-mode `GATE-DONE` dan `DESKTOP-DONE fail=0`. Round trip
+      Redis sungguhnya menunggu infra (lihat PROGRESS §3 web).
 - [ ] Sumber file v1: CSV + Parquet + JSON lewat `read_csv_auto`/`read_parquet`/`read_json_auto`
       (core DuckDB, tanpa extension per-OS). **Sisi engine selesai 2026-11-02**: `duckdb.FileSourceQuery` +
       `Session.RegisterFileSource` memetakan ekstensi ke reader core (`.csv`/`.tsv`/`.parquet`/`.pq`/`.json`/

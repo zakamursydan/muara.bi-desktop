@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { QueryService } from "../bindings/muara.bi/desktop/index.js";
+import { TruncateReason } from "../bindings/muara.bi/engine/duckdb/models.js";
 
 const DEFAULT_SQL = `SELECT o.channel, COUNT(*) AS orders, SUM(o.total) AS revenue
 FROM sample.public.orders AS o
@@ -80,6 +81,8 @@ export default function App() {
     }
   }
 
+  const note = result ? truncationNote(result) : null;
+
   return (
     <>
       <h1>M0 spike — Wails v3 × engine DuckDB</h1>
@@ -150,12 +153,28 @@ export default function App() {
           <div className="note">
             {result.row_count} baris · {result.duration_ms} ms · cap {result.row_limit}
           </div>
-          {result.truncated ? (
-            <div className="badge">hasil terpotong oleh {result.truncated_by}</div>
-          ) : null}
+          {note ? <div className="badge">{note}</div> : null}
         </section>
       ) : null}
     </>
+  );
+}
+
+// The engine decides whether an answer is complete; the grid only says it here.
+function truncationNote(result) {
+  if (!result?.truncated) return null;
+
+  const sources = (result.capped_sources ?? []).filter(Boolean);
+  if (result.truncated_by === TruncateReason.TruncateSourceCap) {
+    return `sebagian sumber hanya terbaca sampai batasnya${
+      sources.length ? `: ${sources.join(", ")}` : ""
+    }`;
+  }
+  return (
+    `baris dipotong ke ${result.row_limit} pertama` +
+    (sources.length
+      ? ` · sumber ${sources.join(", ")} juga hanya terbaca sebagian`
+      : "")
   );
 }
 
