@@ -439,6 +439,34 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   yang terukur adalah **parsing**, bukan byte yang dikirim ke server — error scanner menampilkan string asli,
   bukan hasil unescape, jadi kepastian bit-per-bit butuh server MySQL sungguhan. Gerbang empat-mode
   (engine+web × `CGO_ENABLED=1/0`) hijau; `gofmt -l` bersih.
+- **CA MongoDB jadi `tlsCAFile` (2026-11-02, penutup butir 2(c) §4):** sumber Mongo tidak lewat DuckDB —
+  `StreamMongoCollections` memakai **driver Go**, jadi CA punya tempat di sini, kebalikan dari `mysql_scanner`.
+  1. **Probenya sama seperti §17 dan bekerja karena alasan yang sama:** `mongo.Connect` ke `127.0.0.1:1` dengan
+     `serverSelectionTimeoutMS=400`; berkas sertifikat dibuka **sebelum** server disentuh, jadi
+     `open …: no such file` adalah bukti bahwa kata kuncinya dibaca. Tanpa berkas itu, "tidak ada error" tidak
+     berarti apa pun — `bogusCAFile` juga tidak menghasilkan error, karena driver **tidak memvalidasi** nama opsi
+     URI. Tabel lengkap di engine-map §18.
+  2. **Yang berbahaya bukan hanya "belum ada", tapi "sudah ditulis dan diabaikan":** nama warisan `sslCAFile`
+     ditoleransi parser lalu **tidak pernah dibaca**. Profil `?sslCAFile=…` mengira dirinya terverifikasi padahal
+     tidak ada yang diperiksa, jadi `withMongoTLS` **menolak** URI yang masih memakannya daripada
+     menerjemahkannya — dan menolak pula `tlsCAFile` yang nilainya berbeda dari `root_cert` (dua sumber kebenaran
+     untuk satu CA).
+  3. **Nilai kosong = error** (`tlsCAFile=` → `open : no such file`), persis pelajaran `passwd=` di MySQL:
+     kunci yang tidak dipakai harus dihilangkan, bukan dikosongkan.
+  4. **Mode fallback sengaja tidak dipaksa.** Driver cuma bisa nyala/mati: `require|verify-ca|verify-full` →
+     `tls=true`; `disable` **dan** fallback libpq `allow|prefer` → tetap polos. Alasannya konkret, bukan selera —
+     `environment-form.tsx` mengirim `ssl_mode: "prefer"` untuk **semua** driver, jadi menolak atau memaksa
+     fallback ke TLS akan merusak profil Mongo yang hari ini jalan (termasuk sample mongo di stack user, yang
+     tidak ber-TLS). Yang dijaga ketat: `root_cert` di samping mode tanpa TLS **ditolak**, karena CA yang
+     tersimpan tapi tak terpakai itulah yang membuat profil berbohong. `verify-ca` vs `verify-full` tidak bisa
+     dibedakan driver (Go selalu memverifikasi rantai dan nama host selama `tlsInsecure` tidak dipasang), jadi di
+     Mongo bedanya cuma menandai niat operator.
+  Titik tulis sekarang bertanya ke connector-nya sendiri (`normalizeStoredRootCert` menggantikan
+  `checkRootCertDriver` yang berumur satu hari): gerbang mode libpq untuk Postgres, gerbang TLS untuk Mongo,
+  ditolak dengan alasan untuk sisanya. Bukti: 4 tes URI/validasi baru di `session_preparer_test.go` +
+  `TestMongoDriverOpensTLSCAFileButNotSSLCaFile` di engine. Belum: verifikasi terhadap server Mongo
+  bersertifikat sungguhan (infra TLS milik user) — yang terbukti adalah berkas CA benar-benar dibuka.
+  Gerbang empat-mode hijau; `gofmt -l` bersih.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -573,7 +601,8 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    beralasan. Sisa pekerjaan MySQL hanya dua: **sampel server MySQL sungguhan** untuk membuktikan byte yang
    dikirim (yang terukur sekarang baru parsing), dan jalur TLS lewat driver Go kalau nanti sumber MySQL memang
    perlu CA — keduanya bukan blocker M2;
-   (c) **MongoDB** — `tlsCAFile` di URI;
+   (c) **MongoDB — selesai 2026-11-02** (`root_cert` → `tlsCAFile`, plus penolakan `sslCAFile` yang diabaikan
+   driver; lihat §3 dan engine-map §18);
    (d) **path relatif CA** ikut §5.5, baru relevan ketika `.muara` jadi storage di M3.
 3. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
    `Session.RegisterFileSource` (CSV/TSV/Parquet/JSON lewat reader core, tanpa bundel), ditolak rapi untuk tipe

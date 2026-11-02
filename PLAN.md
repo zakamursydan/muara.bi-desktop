@@ -336,14 +336,18 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       di dalam kutip hanya `\\` dan `\"` yang sah, sedangkan di luar kutip backslash verbatim, dan nilai yang
       **diawali** `"` harus diekscape atau parsing mati `unterminated quote`. Perakitnya pindah ke engine
       (`duckdb.MySQLDSN`) karena aturannya milik scanner, bukan milik salah satu produk.
-- [ ] **Sisa CA privat (BRD §10 butir 8):** untuk **MySQL tidak bisa di jalur ini** — terukur 2026-11-02 bahwa
-      `mysql_scanner` tidak punya satu pun kata kunci TLS (`ssl-ca`, `ssl-capath`, `ssl-mode` semua
-      `Unrecognized configuration parameter`) dan kredensial tidak bisa lewat opsi ATTACH (opsi yang dikenal
-      cuma `read_only`), jadi validasi titik tulis sekarang **menolak** `root_cert` di profil MySQL alih-alih
-      menyimpan path yang diam-diam diabaikan; MySQL di belakang TLS tetap lewat bastion/VPN (§5.7). Yang masih
-      terbuka: MongoDB (`tlsCAFile` di URI — bisa, karena Mongo jalan lewat driver Go), **path relatif CA ikut
-      §5.5** begitu bundle `.muara` jadi storage (M3), dan **UI**: web baru menerima `root_cert` lewat API,
-      form-nya belum ada kolomnya.
+- [x] **CA untuk MongoDB selesai 2026-11-02:** `root_cert` dirakit jadi **`tlsCAFile`** di URI (sumber Mongo
+      tidak lewat DuckDB tapi lewat driver Go, jadi punya tempat untuk CA — kebalikan dari MySQL §17 engine-map).
+      Yang diukur: driver membuka berkas CA **sebelum** menyentuh server (`127.0.0.1:1` cukup sebagai probe),
+      nama warisan `sslCAFile` **diabaikan diam-diam** — karena itu URI yang masih memakannya ditolak, bukan
+      diterjemahkan — dan `tlsCAFile=` kosong adalah error sehingga kunci yang tidak dipakai dihilangkan.
+      Pemetaan mode: `require|verify-ca|verify-full` → `tls=true`; `disable` dan fallback `allow|prefer` tetap
+      polos, karena form web mengirim `prefer` untuk semua driver dan memaksanya ke TLS akan merusak profil
+      yang hari ini jalan. CA di samping mode tanpa TLS ditolak di titik tulis.
+- [ ] **Sisa CA privat (BRD §10 butir 8):** **path relatif CA ikut §5.5** begitu bundle `.muara` jadi storage
+      (M3), dan **UI**: web baru menerima `root_cert` lewat API, form koneksi belum punya kolomnya — dan kolom
+      itu harus per-driver, karena tiga driver punya tiga aturan berbeda yang sudah diukur
+      (`sslrootcert` + gerbang mode untuk Postgres, `tlsCAFile` + nyala/mati untuk Mongo, tidak ada untuk MySQL).
 
 **Exit:** tree menampilkan kolom Mongo dan Postgres berdampingan; satu query lintas dua alias jalan;
 pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang bastion/VPN terbukti jalan pada

@@ -537,6 +537,39 @@ Tiga kesimpulan produk:
    MySQL sungguhan. Tes tingkat scanner (`engine/duckdb/mysql_scanner_test.go`) karena itu diberi batas:
    jalan hanya kalau `DUCKDB_EXTENSION_DIRECTORY` menunjuk bundel berisi `mysql_scanner`.
 
+## 18. Kata kunci TLS yang benar-benar dibaca driver MongoDB (2026-11-02)
+
+Sumber Mongo tidak lewat DuckDB: `StreamMongoCollections` memakai **driver Go**, jadi CA punya tempat di sini —
+beda total dari `mysql_scanner` (§17). Pengukurannya pakai trik yang sama: `mongo.Connect` terhadap
+`127.0.0.1:1` dengan `serverSelectionTimeoutMS=400`, dan **berkas sertifikat dibuka sebelum server disentuh**,
+sehingga error "berkas tidak ada" adalah bukti bahwa kata kuncinya dibaca. Driver v1.17.10:
+
+| URI (sebagian) | hasil | arti |
+| --- | --- | --- |
+| `?tls=true&tlsCAFile=/berkas/yang/tidak/ada` | `open …: no such file or directory` | **`tlsCAFile` dibaca** |
+| `?tls=true&sslCAFile=/berkas/yang/tidak/ada` | error nil | nama warisan **diabaikan diam-diam** |
+| `?tls=true&bogusCAFile=/…` | error nil | driver **tidak** memvalidasi nama opsi — "tanpa error" bukan bukti |
+| `?tlsCAFile=/berkas/tidak/ada` (tanpa `tls=`) | `open …: no such file` | berkasnya tetap dibuka walau TLS tidak diminta |
+| `?tls=true&tlsCAFile=` (nilai kosong) | `open : no such file` | sama seperti `passwd=` di MySQL: **hilangkan kuncinya** |
+| `?tls=true&tlsInsecure=true` | error nil | ada, dan berarti verifikasi dimatikan — jangan sampai produk memancangnya |
+
+Tiga aturan yang lahir dari tabel ini:
+1. **Bukti sebuah kata kunci = berkasnya dibuka, bukan pesan error hilang.** Baris `bogusCAFile` adalah
+   pembanding yang wajib; tanpa itu `sslCAFile` akan terlihat "diterima".
+2. **`sslCAFile` adalah jebakan keamanan**, bukan sekadar nama lama: profil yang memakannya mengira dirinya
+   terverifikasi sementara driver tidak membaca apa pun. Karena itu `withMongoTLS` (web) **menolak** URI yang
+   masih memakannya alih-alih menerjemahkannya.
+3. **Mode fallback tidak bisa dipetakan.** Driver cuma punya nyala/mati. `require`/`verify-ca`/`verify-full` →
+   `tls=true`; `disable` dan fallback libpq `allow`/`prefer` → tetap polos. Ini bukan kemalasan: form
+   koneksi web mengirim `ssl_mode: "prefer"` untuk **semua** driver, jadi menolak atau memaksanya ke TLS akan
+   merusak profil Mongo yang hari ini bekerja. Yang dijaga ketat adalah kombinasinya: `root_cert` di samping
+   mode tanpa TLS **ditolak di titik tulis**, karena CA yang tidak dipakai itulah yang membuat profil berbohong.
+
+Artinya `verify-ca` vs `verify-full` tidak bisa dibedakan di sisi driver (Go selalu memverifikasi rantai
+**dan** nama host selama `tlsInsecure`/`tlsAllowInvalidCertificates` tidak dipasang), jadi bedanya di Mongo
+hanya menandai niat operator, bukan perilaku berbeda. Yang belum terukur: verifikasi sungguhan terhadap server
+Mongo bersertifikat (butuh infra TLS milik user) — bukti yang ada adalah berkas CA benar-benar dibuka.
+
 
 
 
