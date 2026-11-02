@@ -529,9 +529,32 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     service (penolakan per-driver, butuh engine, cache kosong, kolom tersimpan, redaksi). Gerbang empat-mode
     `GATE-DONE fail=0` + `gofmt` bersih. Yang belum terukur: MySQL nyata (tidak ada server) dan Postgres via
     scanner (container rusak).
+- **Katalog sumber diperluas: kunci, nullability, komentar, taksiran baris (2026-11-02, lanjutan butir di atas):**
+  setengah pertama butir "skema terkualifikasi penuh" ada di engine, dan isinya ditentukan oleh probe, bukan oleh
+  daftar kolom yang diinginkan (tabel lengkap di `docs/engine-map.md` §21).
+  - **Yang mengubah bentuk API adalah angka, bukan selera.** `estimated_size` fixture dilaporkan **5** padahal
+    `SELECT count(*)` = **6** → field-nya `EstimatedRows` dan UI wajib menyebutnya taksiran; view tidak punya
+    baris `duckdb_tables()` sama sekali → `UnknownRowCount = -1`, karena `0` terbaca "tabel ini kosong" untuk
+    sesuatu yang tidak pernah diukur; `is_nullable` adalah deklarasi, bukan konsekuensi kunci (`id INTEGER
+    PRIMARY KEY` dilaporkan **nullable** — rowid alias); `duckdb_constraints()` tidak punya `referenced_schema`
+    jadi target FK hanya bisa dibawa sebagai nama tabel; LIST tiba di Go sebagai `[]interface{}`.
+  - **Kuncinya diukur tanpa server** lewat katalog `temp` punya DuckDB sendiri: dua tabel temp berkunci komposit
+    + satu FK menghasilkan `PRIMARY KEY [pid,org]` dan `FOREIGN KEY → parent(id,org)`. Cara desktop menulis
+    tes-nya yang perlu dicatat: helper-nya memakai `*cgoSession` di dalam paket, karena `CREATE TEMP TABLE`
+    memang **bukan** method yang mau dibuka ke caller.
+  - **Filter schema sistem pindah ke dua tempat** setelah kelihatan akibatnya: baris `information_schema`/
+    `pg_catalog` ikut memakan `MaxCatalogColumns`, jadi WHERE ikut menyaring (nama-nama konstanta package, alias
+    tetap ter-bind) dan Go tetap jadi aturan yang teruji. `constraint_type` sengaja **tidak** difilter di SQL —
+    ejaannya milik tiap scanner, dan salah eja membuat cache melaporkan "tabel tidak punya kunci", kegagalan
+    diam yang persis baru ditutup di butir SyncSchema.
+  - **Sengaja belum sampai cache:** `cached_schema` dan empat pembacanya belum disentuh karena jalur Postgres
+    (pgx) masih belum bisa diukur — `AttachPostgres` dicoba ulang hari ini dan masih
+    `FATAL: could not open file "global/pg_filenode.map": I/O error`. Bukti: `TestDescribeSourceReadsKeysFromADuckDBCatalog`,
+    `TestDescribeSourceOnAttachedSQLite` (diperluas), `TestBuildCatalog*`, `TestCatalogStringsFlattensDriverLists`,
+    `TestCatalogQueriesBindTheAliasAndKeepTheirOrder`; gerbang empat-mode web `GATE-DONE fail=0` dan verifikasi
+    desktop `DESKTOP-DONE fail=0` (CGO=1 build/vet/test + `meminfo` cross-build + "CGO=0 tidak boleh menghasilkan
+    biner app"), `gofmt` bersih di dua repo.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
-
-
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
     yang sama tidak perlu digandakan per klien). Connection/alias/semantic model tetap berlaku satu berkas.
@@ -699,10 +722,13 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      MySQL/SQLite). Menyateliknya butuh pembanding spelling tipe `postgres_scanner` vs `information_schema`
      sumber, dan itu butuh sample Postgres yang hidup; mesin ini sedang `pg_filenode.map: I/O error`, jadi
      restart infra adalah aksi milik user, bukan langkah yang boleh diambil sendiri;
-   (b) **`cached_schema` terkualifikasi** (butir PLAN di atas): perluas `CatalogTable` dengan
-     `is_nullable`/PK/FK/komentar/`estimated_size` — bahan sudah terbukti ada — lalu ubah bentuk cache dan
-     **empat** pembacanya sekaligus (`ai_service.go`, `stores/schema-store.ts`, `hooks/use-schema-tree.ts`,
-     `lib/monaco-completion.ts`);
+   (b) **`cached_schema` terkualifikasi** (butir PLAN di atas): **selesai setengahnya 2026-11-02** —
+     `CatalogTable` sudah membawa `is_nullable`/`column_default`/`comment`/PK/FK/`estimated_size` dan
+     `DescribeSource` sudah membacanya dari tiga fungsi katalog (engine-map §21). Yang tinggal: ubah bentuk
+     cache dan **empat** pembacanya sekaligus (`ai_service.go`, `stores/schema-store.ts`,
+     `hooks/use-schema-tree.ts`, `lib/monaco-completion.ts`). Sengaja belum: jalur Postgres masih pgx dan tidak
+     bisa diukur di mesin ini, jadi mengubah JSON sekarang berarti menebak apa yang pgx kembalikan untuk
+     `is_nullable`/`pg_description` — dan tebakan yang salah masuk sampai prompt AI;
    (c) **MySQL sungguhan** untuk membuktikan katalog hasil ATTACH (yang terukur sekarang jalur SQLite + fake
      service);
    (d) **sisi desktop**: tree skema (FR-2) nanti memanggil `DescribeSource` yang sama, dan aturannya **tidak**

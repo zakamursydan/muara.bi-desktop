@@ -185,8 +185,9 @@ implementasi desktop tidak perlu mengulang policing-nya:
   `duckdb.FileSourceQuery` (§15). Nama view divalidasi `sqlident.IsPlain` dan path masuk sebagai string literal
   hasil `quoteLiteral`, jadi desktop tidak perlu (dan tidak boleh) merakit SQL-nya sendiri. Ini jalur sumber
   file; `Attach*` tetap untuk database.
-- `Session.DescribeSource(ctx, alias string) ([]CatalogTable, error)` (2026-11-02) — membaca **metadata** tabel
-  dan kolom dari catalog yang sudah di-ATTACH, lewat fungsi katalog DuckDB sendiri. Ini satu-satunya jalur yang
+- `Session.DescribeSource(ctx, alias string) ([]CatalogTable, error)` (2026-11-02, diperluas hari yang sama
+  — §21) — membaca **metadata** tabel, kolom, kunci, komentar dan taksiran baris dari catalog yang sudah
+  di-ATTACH, lewat fungsi katalog DuckDB sendiri. Ini satu-satunya jalur yang
   berlaku untuk ketiga scanner SQL (alasan terukur di §20), jadi desktop tidak perlu — dan tidak boleh — menulis
   query `information_schema` sendiri. Tidak ada baris data yang dibaca; hasil kosong berarti "tidak ada yang
   terlihat", bukan error, sehingga keputusan "cache tidak boleh tertimpa skema kosong" ada di pemanggil.
@@ -667,3 +668,61 @@ Permukaannya (`backend/engine/duckdb/catalog.go`): `DescribeSource` mem-*bind* a
 disimpan separuh dan tampak lengkap. Denylist schema sistem (`information_schema`, `pg_catalog`, `mysql`,
 `performance_schema`, `sys`) dijalankan di Go supaya teruji tanpa sumber nyata. Build tanpa CGO mengembalikan
 `ErrCGODisabled` seperti method `Session` yang lain.
+
+---
+
+## 21. Isi katalog penuh: kunci, nullability, komentar, dan taksiran yang bukan jumlah baris (2026-11-02)
+
+§20 butir 2 bilang perluasan `CatalogTable` "tidak butuh connector baru". Kalimat itu diuji dulu sebelum
+ditulis kode: **apa saja yang benar-benar ada di tiga fungsi katalog itu**, diukur pada DuckDB 1.1.3 + bundel
+aplikasi, lewat dua sumber metadata — fixture SQLite repo ini, dan **katalog `temp` punya DuckDB sendiri**
+(dua tabel temp berkunci komposit plus satu FK), karena hanya jalur kedua yang bisa dijalankan tanpa server
+apa pun.
+
+| Fungsi | Kolom yang ada (terukur) | Yang dipakai |
+| --- | --- | --- |
+| `duckdb_columns()` | `database_name`, `schema_name`, `table_name`, `column_name`, `column_index`, `data_type`, `is_nullable` (BOOLEAN), `column_default`, `comment`, `character_maximum_length`, `numeric_precision`, `numeric_precision_radix`, `numeric_scale`, `internal` | nama, tipe, `is_nullable`, `column_default`, `comment` |
+| `duckdb_constraints()` | `schema_name`, `table_name`, `constraint_index`, `constraint_type`, `constraint_text`, `constraint_name`, `constraint_column_names` (**LIST**), `constraint_column_indexes` (`BIGINT[]`), `referenced_table`, `referenced_column_names` (**LIST**) — **tidak** punya `internal`, **tidak** punya `referenced_schema` | `PRIMARY KEY` → kunci; `FOREIGN KEY` → tabel & kolom rujukan |
+| `duckdb_tables()` | `comment`, `has_primary_key`, `estimated_size`, `column_count`, `index_count`, `check_constraint_count`, `temporary`, `sql` (DDL penuh), `internal` | `comment`, `estimated_size` |
+
+Enam konsekuensi yang langsung mengubah bentuk kodenya:
+
+1. **LIST tiba di Go sebagai `[]interface{}`** (terukur: `[]interface {}([pid org])`). Satu perata
+   (`catalogStrings`) yang membuang elemen non-string/kosong/`nil` — nama kolom kosong tidak akan pernah
+   bisa dipakai JOIN. Fungsinya hidup di `catalog.go` tanpa build tag supaya aturannya tetap teruji di build
+   `CGO_ENABLED=0`.
+2. **`estimated_size` bukan jumlah baris.** Fixture berisi **6** baris (`SELECT count(*)` = 6); scanner
+   melaporkan **5**. Kolomnya karena itu bernama `EstimatedRows`, dan dokumentasinya mewajibkan UI menyebut
+   angka itu taksiran. Konsumennya tidak boleh memakai angka ini untuk memutuskan query benar atau salah.
+3. **View tidak punya baris di `duckdb_tables()`.** `CREATE TEMP VIEW` muncul di `duckdb_columns()` (jadi
+   kolomnya ter-cache) tetapi tidak di `duckdb_tables()`. Kalau "tidak ada baris" dipetakan ke `0`, tree
+   melaporkan "tabel kosong" untuk sesuatu yang tidak pernah diukur — maka `UnknownRowCount = -1`.
+   Teks yang sama berlaku untuk `estimated_size` yang NULL.
+4. **`is_nullable` adalah deklarasi, bukan konsekuensi kunci.** `id INTEGER PRIMARY KEY` dilaporkan
+   **nullable** (rowid alias SQLite), `channel TEXT NOT NULL` dan `total REAL NOT NULL` tidak. Aturan untuk
+   katalog yang tidak bilang apa-apa: baca **nullable**, karena mengarang `NOT NULL` adalah arah yang membuat
+   SQL hasil AI salah.
+5. **Baris bookkeeping memakan budget baris.** `duckdb_columns()` untuk catalog Postgres yang di-ATTACH akan
+   membawa `information_schema`/`pg_catalog` mirror — ribuan kolom sebelum satu kolom pengguna — dan cap
+   `MaxCatalogColumns` adalah alasan penolakan, bukan fitur. Filter schema sistem sekarang ada **dua kali**:
+   di WHERE (biar fetch murah; nama-namnya konstanta package, alias tetap ter-bind `database_name = ?`) dan
+   di Go (`systemSchemas`, tetap aturan yang teruji dan case-insensitive). Testi mengunci bentuk terketatnya:
+   satu-satunya teks berquote yang boleh muncul di statement katalog adalah anggota `systemSchemas`.
+6. **`constraint_type` tidak difilter di SQL.** Ejaannya milik tiap scanner — `PRIMARY KEY`/`NOT NULL`
+   terukur dari `sqlite_scanner`, `FOREIGN KEY` (+ `referenced_column_names`) terukur dari katalog DuckDB.
+   Salah eja di WHERE membuat cache melaporkan "tabel ini tidak punya kunci": kegagalan diam yang persis
+   seperti yang baru ditutup di §20. Baris `NOT NULL` dibuang di Go karena `is_nullable` sudah membawanya;
+   `CHECK` tidak dibawa karena tidak berarti untuk tree, completion, maupun hint join.
+
+Permukaannya sekarang: `DescribeSource` menjalankan tiga query itu pada satu session (jadi jawabannya
+selalu sama dengan yang bisa dilihat query yang dijalankan session itu), masing-masing dengan sentinel
+`LIMIT 5001`, lalu `buildCatalog` menggabungkan. **Daftar kolom yang menentukan relasi apa saja yang
+muncul** — constraint atau baris tabel untuk relasi tanpa kolom dibuang, tidak dibuatkan entri. Testi
+kunci/`FOREIGN KEY`/nullability/taksiran berjalan tanpa server (`TestDescribeSourceReadsKeysFromADuckDBCatalog`),
+jalur scanner SQLite-nya tetap lewat bundel + fixture.
+
+Yang masih belum terukur di katalog ini: `comment` untuk Postgres/MySQL (sumbernya tidak ada di mesin ini),
+spelling `constraint_type` MySQL nyata, dan apakah `postgres_scanner` memajang mirror `information_schema`
+seperti yang dikhawatirkan butir 5. Semua angka di §20 tentang Postgres tetap berlaku: sample-nya mati di
+sisinya sendiri, dan dicoba ulang 2026-11-02 lewat `AttachPostgres` masih membalas
+`FATAL: could not open file "global/pg_filenode.map": I/O error`.

@@ -308,11 +308,21 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       `{tabel: [{name,type}]}`.
 - [ ] Skema terkualifikasi penuh: `alias.schema.tabel`, PK/FK, nullability, komentar tabel/kolom,
       jumlah baris — mengganti peta `{tabel: [{name,type}]}` (`cachedColumn` di web, dulu
-      `map[string][]ColumnDef`). Bahan ukurnya sudah ada sejak 2026-11-02: `duckdb_columns()` membawa
-      `is_nullable`+`data_type`, `duckdb_tables()` membawa `has_primary_key`/`estimated_size`/`sql`,
-      `duckdb_constraints()` membawa `constraint_type`/`constraint_column_names`/`referenced_table` — tinggal
-      diperluas ke `CatalogTable` lalu bentuk cache dan empat pembacanya diubah sekaligus. Dua hal masih butuh
-      sumber hidup: spelling tipe Postgres dari `postgres_scanner` (vs pgx) dan MySQL nyata.
+      `map[string][]ColumnDef`). **Sisi engine selesai 2026-11-02** dan isinya diukur, bukan diasumsikan:
+      `DescribeSource` sekarang membaca tiga fungsi katalog (`duckdb_columns()` untuk `is_nullable` +
+      `column_default` + `comment`, `duckdb_constraints()` untuk PK & FK lengkap dengan kolom rujukannya,
+      `duckdb_tables()` untuk `comment` + `estimated_size`), dibuktikan pada katalog `temp` DuckDB — dua tabel
+      temp berkunci komposit + satu FK, tanpa server apa pun — dan pada fixture SQLite. Tiga angka yang
+      mengubah bentuk API: LIST tiba sebagai `[]interface{}`, **`estimated_size` fixture = 5 padahal
+      `count(*)` = 6** (maka `EstimatedRows`, dan `-1` = tidak dilaporkan, bukan 0), dan `is_nullable` adalah
+      deklarasi (`id INTEGER PRIMARY KEY` tetap nullable). View tidak punya baris `duckdb_tables()`, jadi
+      ukurannya `UnknownRowCount`. Filter schema sistem ikut pindah ke WHERE karena baris bookkeeping memakan
+      budget baris (`MaxCatalogColumns`), sementara aturannya yang teruji tetap di Go.
+      **Yang tersisa** cuma satu hal dan ia butuh server: bentuk `cached_schema` + empat pembacanya
+      (`ai_service.go:358`, `stores/schema-store.ts`, `hooks/use-schema-tree.ts`, `lib/monaco-completion.ts`)
+      harus berpindah sekaligus, dan jalur Postgres (pgx) belum bisa diukur — sample-nya masih mati di sisinya,
+      dicoba ulang 2026-11-02 lewat `AttachPostgres`. Mengubah JSON sekarang = menebak apa yang pgx kembalikan
+      untuk `is_nullable`/`pg_description`. Detail pengukuran di `docs/engine-map.md` §21.
       Ini prasyarat FR-2, FR-5, FR-10.
 - [ ] Penanda pemotongan **sampai ke UI**: sisinya engine sudah selesai di M1.4 (`MongoMount.Truncated` →
       `QueryResult.TruncatedBy = source_cap`), yang tersisa adalah menampilkan `truncated`/`truncated_by`/
