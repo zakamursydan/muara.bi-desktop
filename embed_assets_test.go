@@ -64,3 +64,55 @@ func get(t *testing.T, handler http.Handler, path string) *httptest.ResponseReco
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
+
+// TestDocumentControlsAreInShippedBundle keeps "the app works on one open file"
+// honest at the only layer that is not testable from Go: the window the user
+// actually clicks. A bundle that can be opened, saved and reported in
+// `document.go` but never reaches the embedded JS is still a spike.
+//
+// The assertions are on strings the UI itself writes. Generated bindings are not
+// named in the bundle — `$Call.ByID(<hash>)` replaces the method name, and
+// minification removes what is left — so the binding layer is guarded by
+// regenerating it, not by grepping it here.
+func TestDocumentControlsAreInShippedBundle(t *testing.T) {
+	js := shippedJS(t)
+
+	for _, want := range []string{
+		// The four file actions, and the state the window shows before any of
+		// them has been used.
+		"Mulai kosong", "Buka…", "Simpan", "Simpan sebagai", "Tidak ada berkas terbuka",
+		// The mount report, whose whole point is that a source that did not mount
+		// is counted and readable rather than swallowed.
+		"ter-mount dari",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("the shipped bundle does not contain %q; the document bar is not in the app the user runs", want)
+		}
+	}
+
+	// JSON tags of DocumentInfo: their presence means the generated model, not a
+	// hand-copied shape, is what the window reads.
+	for _, tag := range []string{"duckdbVersion", "profileError", "semanticModels"} {
+		if !strings.Contains(js, tag) {
+			t.Errorf("the shipped bundle does not read %q; the binding model did not reach the UI", tag)
+		}
+	}
+}
+
+func shippedJS(t *testing.T) string {
+	t.Helper()
+	handler := application.BundledAssetFileServer(bundledAssets())
+	refs := assetRef.FindAllStringSubmatch(get(t, handler, "/").Body.String(), -1)
+	var out strings.Builder
+	for _, ref := range refs {
+		if !strings.HasSuffix(ref[1], ".js") {
+			continue
+		}
+		asset := get(t, handler, "/"+ref[1])
+		if asset.Code != 200 {
+			t.Fatalf("GET /%s = %d", ref[1], asset.Code)
+		}
+		out.WriteString(asset.Body.String())
+	}
+	return out.String()
+}

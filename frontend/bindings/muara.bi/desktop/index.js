@@ -8,5 +8,7 @@ export {
 };
 
 export {
-    EngineStatus
+    DocumentInfo,
+    EngineStatus,
+    MountReport
 } from "./models.js";

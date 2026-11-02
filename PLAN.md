@@ -516,7 +516,32 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       `mongodb` karena sesi desktop belum punya jalur attach-nya sama sekali, dan `postgres`/`mysql` karena
       conninfo libpq masih tinggal di `muara.bi/core` (web) yang tidak boleh diimport desktop, sementara keychain
       baru M6. Dialog berkas (`OpenWithDialog`/`SaveAsWithDialog`) memakai dialog Wails di sisi Go — path tidak
-      pernah diketik di webview — dan **belum terukur**: butuh satu klik manusia.
+      pernah diketik di webview.
+      **Bar dokumen sekarang sampai ke jendelanya juga** (2026-11-02, `frontend/src/App.jsx` + `styles.css`, setelah
+      sketsanya disetujui): satu deret `Mulai kosong` · `Buka…` · `Simpan` · `Simpan sebagai…`, nama berkas dengan
+      `●` saat belum disimpan, baris kedua folder + jumlah View/model semantik/sumber + "belum disimpan",
+      `profileError` ditampilkan kalau profil mesin tidak bisa dibaca, dan panel **Sumber** yang menghitung
+      "N ter-mount dari M" lalu menuliskan alasan tiap `✗` di bawah barisnya. Editor SQL tidak lagi dibuka dengan
+      query fixture: begitu bundle terbuka, isinya diganti `SELECT * FROM <model pertama> LIMIT 20` — **hanya kalau
+      user belum mengetik apa pun**, karena menekan satu tombol tidak boleh membuang query yang sedang ditulis.
+      `Simpan`/`Simpan sebagai…` dimatikan selama tidak ada berkas terbuka, supaya penolakan di Go tidak pernah
+      tampak sebagai error misterius. Dua tombol spike (`Attach Postgres sample`, `Attach SQLite fixture`) keluar
+      dari UI: fixture-nya tetap teruji dari Go (`query_service_test.go`), dan menyimpannya di layar membuat orang
+      menyangka itu sumber sungguhan. Bindings di-generate ulang → **12 metode, 5 model**.
+      Bagian jendela dijaga `TestDocumentControlsAreInShippedBundle`: label kontrol dan JSON tag `duckdbVersion` /
+      `profileError` / `semanticModels` wajib ada di bundle JS yang ter-embed — nama metode binding **tidak** bisa
+      dipakai sebagai penanda karena generator menulis `$Call.ByID(<hash>)` dan minifikasi menghapus sisanya.
+      **Yang masih menunggu manusia:** satu klik nyata pada dialog Wails. Itu berarti build `.app` baru, dan volume
+      data mesin ini tinggal **2,0 GB dari 228 GB (100%)** sementara link DuckDB butuh ±1,1 GB transien — langkahnya
+      ditunda sampai user memutuskan soal ruang disk, bukan karena kodenya belum ada.
+      Bahasanya sengaja mengikuti `docs/wireframe.html` (sumber hijau/merah + alasan di barisnya), tapi jendela ini
+      **belum** separuh layar itu: S0 "terakhir dibuka" + Import bundle dengan laporan pre-flight masih M4, dan
+      pohon View/Dashboard di S1 masih M5. Yang dibangun sekarang cuma barisan yang menjawab §5.1.
+- [ ] **Satu klik manusia pada dialog berkas** — `OpenWithDialog` / `SaveAsWithDialog` adalah satu-satunya jalur
+      tempat sebuah path masuk ke aplikasi, dan keduanya belum pernah berjalan di jendela sungguhan. Butuhnya cuma
+      build `.app` + dua klik (pilih berkas, pilih folder); gerbang otomatis sudah menjaga label kontrol ada di
+      bundle, tapi tidak ada tes Go yang bisa membuktikan dialog OS menampilkan `*.muara` dan mengembalikan
+      path yang benar.
 - [ ] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
       KDF-nya kode baru; `cryptohelper` hari ini hanya AES-GCM dengan key dari env.
 

@@ -49,12 +49,6 @@ body {
   user-select: none;
 }
 
-h1 {
-  margin: 0 0 16px;
-  font-size: 16px;
-  font-weight: 650;
-}
-
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -64,23 +58,89 @@ h1 {
   margin-bottom: 14px;
 }
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+/* The engine's own settings are a footnote now that the document is the subject:
+   the window has to answer "which file am I working on" before "what is
+   temp_directory". */
+.titlebar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
+  margin: 0 0 12px;
 }
 
-.stat span {
-  display: block;
-  color: var(--text3);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.titlebar strong {
+  font-size: 15px;
+  font-weight: 650;
 }
 
-.stat strong {
-  font-size: 13px;
+.fileName {
+  margin-left: auto;
   font-weight: 600;
+}
+
+.fileName.dirty {
+  color: var(--warn);
+}
+
+.docMeta {
+  margin-top: 8px;
+  word-break: break-all;
+}
+
+.sources {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.sources summary {
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.sources ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.sources li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sources li:last-child {
+  border-bottom: none;
+}
+
+.sources code {
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.sources .target {
+  color: var(--text3);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.sources .reason {
+  flex-basis: 100%;
+  color: var(--text2);
+  font-size: 12px;
+  padding-left: 18px;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--err);
 }
 
 .toolbar {

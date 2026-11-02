@@ -5,6 +5,10 @@
 /**
  * QueryService is the only bridge between the webview and the engine: the UI
  * never sees DuckDB, only these methods.
+ * 
+ * The mutex is not decoration — the webview calls these methods from whatever
+ * goroutine the JS bridge lands on, and opening a bundle replaces the session
+ * underneath a query that may still be running.
  * @module
  */
 
@@ -49,6 +53,60 @@ export function Close() {
 }
 
 /**
+ * Current is what the window asks before the user does anything: engine status
+ * is half the story, the open file is the other half.
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function Current() {
+    return $Call.ByID(547123870).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * NewUntitled makes the file "mulai kosong" is supposed to produce (§5.1) and
+ * works on it. It is a real file from the first moment: the product has no
+ * unsaved-buffer state to lose, and Save means Save.
+ * 
+ * An existing Untitled.muara is never overwritten — the previous session's only
+ * copy of its settings would be gone with no way back — so the next free name in
+ * the folder is taken instead.
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function NewUntitled() {
+    return $Call.ByID(1195639920).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * Open reads a .muara file, mounts its sources in a session of its own, and makes
+ * it the document the app works on.
+ * @param {string} path
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function Open(path) {
+    return $Call.ByID(1492072205, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * OpenWithDialog asks the OS which file the user means and then opens it.
+ * 
+ * The dialog is Wails' own, reached from the service rather than from the
+ * webview: a path typed into a webview is a path the app would open without the
+ * user having seen it, and BRD §6 keeps file paths out of the UI's hands the same
+ * way it keeps credentials out of them.
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function OpenWithDialog() {
+    return $Call.ByID(3134027445).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * Run executes one statement under the engine's guardrails. ValidateQuery is
  * called here rather than trusted from the UI, matching the product rule that
  * the desktop app is read-only.
@@ -57,6 +115,40 @@ export function Close() {
  */
 export function Run(sql) {
     return $Call.ByID(3599327438, sql).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
+ * Save writes the open document back where it came from.
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function Save() {
+    return $Call.ByID(1481670324).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * SaveAs is Export in BRD §5.1's sense: the app starts working on the file it
+ * just wrote, so "Save As" and "export a copy" are the same operation with the
+ * same path through the store.
+ * @param {string} path
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function SaveAs(path) {
+    return $Call.ByID(510597972, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
+ * SaveAsWithDialog is Export in BRD §5.1's sense — "Export = Save As" — with the
+ * folder chosen by the OS instead of typed.
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function SaveAsWithDialog() {
+    return $Call.ByID(1320051020).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType1($result);
     }));
 }
@@ -66,12 +158,14 @@ export function Run(sql) {
  */
 export function Status() {
     return $Call.ByID(4233353187).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType5($result);
     }));
 }
 
 // Private type creation functions
-const $$createType0 = duckdb$0.QueryResult.createFrom;
+const $$createType0 = $models.DocumentInfo.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $models.EngineStatus.createFrom;
+const $$createType2 = duckdb$0.QueryResult.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = $models.EngineStatus.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);

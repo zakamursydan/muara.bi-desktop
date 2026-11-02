@@ -443,6 +443,13 @@ Dua hal yang baru kelihatan waktu spike menyentuh sisi build, bukan sisi runtime
    `.tools/bin/wails3 generate bindings -d frontend/bindings` dijalankan; menulis ulang berkasnya manual
    menghasilkan binding yang memanggil ID milik metode lain, dan kegagalan itu baru muncul saat diklik.
    Generator itu sendiri bersih dan cepat (369 paket, 5 metode, 2,2 dtk) dan tidak butuh `task`.
+   **Konsekuensi yang baru kelihatan waktu UI dokumen diuji (2026-11-02, 12 metode):** nama metode **tidak ada**
+   di bundle hasil `vite build` — `grep "OpenWithDialog" dist/assets/index-*.js` = 0, karena generator memanggil
+   `ByID(<hash>)` dan minifikasi menghapus identifier yang tersisa. Jadi tes "kontrol ini benar-benar ikut
+   ter-embed" (`TestDocumentControlsAreInShippedBundle`) hanya boleh mengklaim dua hal: teks yang ditulis UI sendiri
+   (`Mulai kosong`, `Buka…`, `Simpan sebagai`, `ter-mount dari`) dan **JSON tag** model (`duckdbVersion`,
+   `profileError`, `semanticModels`) — tag itu survived karena dipakai sebagai kunci properti saat runtime. Yang
+   tidak bisa dibuktikan dari Go: bahwa dialog OS benar-benar muncul; itu tetap satu klik manusia.
 
 ## 15. Sumber file: reader core, bukan extension (2026-11-02)
 

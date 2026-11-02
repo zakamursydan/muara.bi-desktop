@@ -111,6 +111,13 @@ dibaca sekali saat app start) yang memetakan alias → host/port/user/sslmode + 
 Aturan no-secret-nya struktural seperti di store — tidak ada satu pun field bertipe string yang boleh bernama
 password/token/kunci; yang tersimpan cuma `kind` (`keychain`/`env`) dan `label`-nya. Membaca profil yang rusak
 **tidak** menghentikan aplikasi: bundle bersumber file tetap terbuka, dan window menampilkan alasannya.
+Jendelanya sendiri ikut menjawab kalimat "Aplikasi selalu bekerja pada satu berkas terbuka" sejak 2026-11-02: satu
+deret `Mulai kosong · Buka… · Simpan · Simpan sebagai…`, nama berkas dengan `●` saat belum disimpan, baris folder +
+hitungan isi bundle, dan panel **Sumber** yang melaporkan "N ter-mount dari M" berikut alasan tiap sumber yang tidak
+ter-mount. Path **tidak pernah diketik di webview** — yang dipilih adalah dialog Wails di sisi Go, dan tidak ada
+kotak teks untuk path di layar mana pun. Yang belum terbukti di dokumen ini: satu klik manusia pada dialog itu
+(kodefikasi kontrolnya dijaga `TestDocumentControlsAreInShippedBundle`, tapi dialog OS tidak bisa dipanggil dari tes
+Go).
 
 ### 5.2 View dan Project
 `View` adalah unit settingan terkecil yang bisa di-export. `Dashboard` hanyalah layout yang mereferensi ID View.

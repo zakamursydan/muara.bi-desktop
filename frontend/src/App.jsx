@@ -2,36 +2,27 @@ import { useEffect, useState } from "react";
 import { QueryService } from "../bindings/muara.bi/desktop/index.js";
 import { TruncateReason } from "../bindings/muara.bi/engine/duckdb/models.js";
 
-const DEFAULT_SQL = `SELECT o.channel, COUNT(*) AS orders, SUM(o.total) AS revenue
-FROM sample.public.orders AS o
-GROUP BY 1 ORDER BY revenue DESC`;
-
-// The SQLite fixture has no `public` schema, so the same catalogue name resolves
-// differently — the query follows whichever source was actually attached.
-const SQLITE_SQL = `SELECT o.channel, COUNT(*) AS orders, SUM(o.total) AS revenue
-FROM sample.orders AS o
-GROUP BY 1 ORDER BY revenue DESC`;
-
-const STAT_LABELS = [
-  ["duckdbVersion", "DuckDB"],
-  ["maxMemory", "max_memory"],
-  ["threads", "threads"],
-  ["extensionDirectory", "extension_directory"],
-  ["tempDirectory", "temp_directory"],
-];
+// With no document open nothing is mounted, so the starting query asks the engine
+// about itself instead of naming a source that does not exist yet.
+const START_SQL = "SELECT 1 AS one";
 
 export default function App() {
   const [status, setStatus] = useState(null);
+  const [doc, setDoc] = useState(null);
   const [result, setResult] = useState(null);
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
-  const [sql, setSql] = useState(DEFAULT_SQL);
+  const [sql, setSql] = useState(START_SQL);
+  // The editor is only rewritten when the user has not typed in it: opening a
+  // file must never throw away the query someone is already writing.
+  const [edited, setEdited] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    QueryService.Status()
-      .then((value) => {
-        setStatus(value);
+    Promise.all([QueryService.Status(), QueryService.Current()])
+      .then(([engine, current]) => {
+        setStatus(engine);
+        setDoc(current);
         setMessage("");
       })
       .catch((err) => report(err, true));
@@ -42,26 +33,19 @@ export default function App() {
     setIsError(!!error);
   }
 
-  async function attach() {
+  async function call(action, done) {
     setBusy(true);
     try {
-      await QueryService.AttachSample();
-      report("sample ter-attach (READ_ONLY)");
-    } catch (err) {
-      report(err, true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function attachSQLite() {
-    setBusy(true);
-    try {
-      await QueryService.AttachSampleSQLite();
-      // Only rewrites the editor if the user never touched it, so a hand-typed
-      // query is never thrown away by pressing a button.
-      if (sql === DEFAULT_SQL) setSql(SQLITE_SQL);
-      report("fixture sqlite ter-attach (READ_ONLY)");
+      const current = await action();
+      setDoc(current);
+      if (current?.open && !edited) {
+        const suggested = suggestFor(current);
+        if (suggested) {
+          setSql(suggested);
+          setEdited(false);
+        }
+      }
+      report(done);
     } catch (err) {
       report(err, true);
     } finally {
@@ -81,45 +65,105 @@ export default function App() {
     }
   }
 
+  const open = !!doc?.open;
+  const mounted = (doc?.mounts ?? []).filter((m) => m.mounted).length;
   const note = result ? truncationNote(result) : null;
 
   return (
     <>
-      <h1>M0 spike — Wails v3 × engine DuckDB</h1>
+      <header className="titlebar">
+        <strong>muara.bi</strong>
+        <span className="note">
+          {status
+            ? `DuckDB ${status.duckdbVersion} · ${
+                status.maxMemory || "(default duckdb)"
+              } · ${status.threads} thread`
+            : "Memuat setting engine…"}
+        </span>
+      </header>
 
-      <section className="card stats">
-        {status ? (
-          STAT_LABELS.map(([key, label]) => (
-            <div className="stat" key={key}>
-              <span>{label}</span>
-              <strong>{status[key] || "(default duckdb)"}</strong>
-            </div>
-          ))
-        ) : (
-          <div className="note">{message || "Memuat setting engine…"}</div>
-        )}
+      <section className="card">
+        <div className="toolbar">
+          <button
+            className="ghost"
+            onClick={() => call(QueryService.NewUntitled, "Bundle baru dibuat")}
+            disabled={busy}
+          >
+            Mulai kosong
+          </button>
+          <button
+            className="ghost"
+            onClick={() => call(QueryService.OpenWithDialog, "")}
+            disabled={busy}
+          >
+            Buka…
+          </button>
+          <button onClick={() => call(QueryService.Save, "Tersimpan")} disabled={busy || !open}>
+            Simpan
+          </button>
+          <button
+            className="ghost"
+            onClick={() => call(QueryService.SaveAsWithDialog, "")}
+            disabled={busy || !open}
+          >
+            Simpan sebagai…
+          </button>
+          <span className={doc?.dirty ? "fileName dirty" : "fileName"}>
+            {open ? `${doc.dirty ? "● " : ""}${doc.name}` : "Tidak ada berkas terbuka"}
+          </span>
+        </div>
+
+        <div className="note docMeta">
+          {open ? (
+            <>
+              {doc.folder} · {doc.views} View · {doc.semanticModels} model semantik ·{" "}
+              {doc.connections} sumber{doc.dirty ? " · belum disimpan" : ""}
+            </>
+          ) : (
+            "Buat bundle baru atau buka berkas .muara yang sudah ada."
+          )}
+        </div>
+
+        {doc?.profileError ? (
+          <div className="err">Profil mesin ini tidak terpakai: {doc.profileError}</div>
+        ) : null}
+
+        {open && doc.mounts?.length ? (
+          <details className="sources">
+            <summary>
+              Sumber ({mounted} ter-mount dari {doc.mounts.length})
+            </summary>
+            <ul>
+              {doc.mounts.map((m, index) => (
+                <li key={`${m.kind}/${m.name}/${index}`}>
+                  <span className={m.mounted ? "ok" : "bad"}>{m.mounted ? "✓" : "✗"}</span>
+                  <code>{m.name}</code>
+                  <span className="note">{kindLabel(m)}</span>
+                  {m.target ? <span className="target">{m.target}</span> : null}
+                  {!m.mounted && m.reason ? <div className="reason">{m.reason}</div> : null}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
+        {message ? <div className={isError ? "err" : "note"}>{message}</div> : null}
       </section>
 
       <section className="card">
         <div className="toolbar">
-          <button onClick={attach} disabled={busy}>
-            Attach Postgres sample
-          </button>
-          <button onClick={attachSQLite} disabled={busy}>
-            Attach SQLite fixture
-          </button>
           <button className="ghost" onClick={run} disabled={busy}>
             Jalankan query
           </button>
-          {message ? (
-            <span className={isError ? "err" : "note"}>{message}</span>
-          ) : null}
         </div>
 
         <textarea
           value={sql}
           spellCheck={false}
-          onChange={(event) => setSql(event.target.value)}
+          onChange={(event) => {
+            setSql(event.target.value);
+            setEdited(true);
+          }}
         />
       </section>
 
@@ -158,6 +202,28 @@ export default function App() {
       ) : null}
     </>
   );
+}
+
+// The first thing worth running after a bundle opens is the SQL the bundle saved
+// itself, then a plain file source. An attached SQLite is a catalogue rather than
+// a relation, so naming its alias alone would be a query that fails.
+function suggestFor(doc) {
+  const readable = (doc.mounts ?? []).find(
+    (m) =>
+      m.mounted &&
+      (m.kind === "semantic_model" || m.driver === "file") &&
+      plainName(m.name),
+  );
+  return readable ? `SELECT * FROM ${readable.name} LIMIT 20` : null;
+}
+
+function plainName(name) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name ?? "");
+}
+
+function kindLabel(m) {
+  if (m.kind === "semantic_model") return "model semantik";
+  return m.driver || m.kind;
 }
 
 // The engine decides whether an answer is complete; the grid only says it here.

@@ -7,6 +7,140 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * DocumentInfo is the window's answer to "which file am I working on".
+ */
+export class DocumentInfo {
+    /**
+     * Creates a new DocumentInfo instance.
+     * @param {Partial<DocumentInfo>} [$$source = {}] - The source object to create the DocumentInfo.
+     */
+    constructor($$source = {}) {
+        if (!("open" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["open"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["path"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["folder"] = undefined;
+        }
+        if (!("dirty" in $$source)) {
+            /**
+             * Dirty is set by the editors that mutate definitions; the store is written
+             * so that it can be, and nothing sets it until FR-4 has a form to change a
+             * View in.
+             * @member
+             * @type {boolean}
+             */
+            this["dirty"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * CreatedAt is the manifest's stamp, shown so two Untitled files can be
+             * told apart.
+             * @member
+             * @type {string | undefined}
+             */
+            this["createdAt"] = undefined;
+        }
+        if (!("projects" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["projects"] = 0;
+        }
+        if (!("connections" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["connections"] = 0;
+        }
+        if (!("semanticModels" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["semanticModels"] = 0;
+        }
+        if (!("views" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["views"] = 0;
+        }
+        if (!("dashboards" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["dashboards"] = 0;
+        }
+        if (!("alerts" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["alerts"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {MountReport[] | undefined}
+             */
+            this["mounts"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * ProfileError is shown when this machine's profile file could not be read:
+             * the bundle still opens, but the user has to be told the alias map they
+             * expect is not in front of the app.
+             * @member
+             * @type {string | undefined}
+             */
+            this["profileError"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DocumentInfo instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {DocumentInfo}
+     */
+    static createFrom($$source = {}) {
+        const $$createField12_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("mounts" in $$parsedSource) {
+            $$parsedSource["mounts"] = $$createField12_0($$parsedSource["mounts"]);
+        }
+        return new DocumentInfo(/** @type {Partial<DocumentInfo>} */($$parsedSource));
+    }
+}
+
+/**
  * EngineStatus is what the window shows before any query runs, so "the engine
  * is really in this binary" is visible rather than assumed.
  */
@@ -65,3 +199,85 @@ export class EngineStatus {
         return new EngineStatus(/** @type {Partial<EngineStatus>} */($$parsedSource));
     }
 }
+
+/**
+ * MountReport is one line of "what this machine did with the sources this bundle
+ * names". It exists because opening a bundle is not all-or-nothing: a file the
+ * user moved, an alias this machine has no target for, and a server whose
+ * credential lives in another laptop's keychain all have to be *reported* while
+ * the rest of the bundle still works (BRD §5.4, §5.5).
+ */
+export class MountReport {
+    /**
+     * Creates a new MountReport instance.
+     * @param {Partial<MountReport>} [$$source = {}] - The source object to create the MountReport.
+     */
+    constructor($$source = {}) {
+        if (!("name" in $$source)) {
+            /**
+             * Name is the alias a query reads through, or the model name.
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * Kind separates a data source from a saved piece of SQL.
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * Driver is the bundle's word for what the source is.
+             * @member
+             * @type {string | undefined}
+             */
+            this["driver"] = undefined;
+        }
+        if (!("mounted" in $$source)) {
+            /**
+             * Mounted is true only when the session can answer a query that names it.
+             * @member
+             * @type {boolean}
+             */
+            this["mounted"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * Target is the path or host:port this machine resolved the alias to, so the
+             * user can see which of the two sources of truth won.
+             * @member
+             * @type {string | undefined}
+             */
+            this["target"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * Reason explains a Mounted=false, and is written to be read by an analyst
+             * who has not seen this code.
+             * @member
+             * @type {string | undefined}
+             */
+            this["reason"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MountReport instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {MountReport}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new MountReport(/** @type {Partial<MountReport>} */($$parsedSource));
+    }
+}
+
+// Private type creation functions
+const $$createType0 = MountReport.createFrom;
+const $$createType1 = $Create.Array($$createType0);
