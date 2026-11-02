@@ -328,10 +328,22 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       bukan teks PEM, dan hanya bersama `verify-ca`/`verify-full` — `require` menegosiasi TLS tapi menerima
       sertifikat apa pun, sehingga CA di sampingnya **terlihat** terverifikasi padahal tidak ada pemeriksaan.
       Default `sslmode=disable` tetap tidak diubah: itu keputusan per koneksi, bukan lagi cacat perakit DSN.
-- [ ] **Sisa CA privat (BRD §10 butir 8):** CA untuk MySQL (`ssl_ca` di DSN driver — dan builder MySQL hari ini
-      masih merakit `user:pass@tcp(host:port)/db` tanpa quoting apa pun, jadi password berisi `@` sudah rusak
-      sebelum TLS dibahas) dan MongoDB (`tlsCAFile` di URI); **path relatif CA ikut §5.5** begitu bundle `.muara`
-      jadi storage (M3); dan **UI**: web baru menerima `root_cert` lewat API, form-nya belum ada kolomnya.
+- [x] **Builder MySQL dibetulkan (2026-11-02, temuan 2026-10-31):** web dulu merakit
+      `user:pass@tcp(host:port)/db` — bentuk driver Go yang **ditolak** `mysql_scanner` (`Invalid dsn …`), dan
+      password berisi `@` atau `/` sudah merusak string sebelum TLS dibicarakan. Grammar scanner diukur per
+      karakter (engine-map §17): kunci yang dikenal hanya `host, port, user, passwd, db, socket`, nilai kosong
+      harus **dihilangkan** (bukan `passwd=` — itu opsi bernama kosong), spasi/tab/`=` wajib dalam kutip ganda,
+      di dalam kutip hanya `\\` dan `\"` yang sah, sedangkan di luar kutip backslash verbatim, dan nilai yang
+      **diawali** `"` harus diekscape atau parsing mati `unterminated quote`. Perakitnya pindah ke engine
+      (`duckdb.MySQLDSN`) karena aturannya milik scanner, bukan milik salah satu produk.
+- [ ] **Sisa CA privat (BRD §10 butir 8):** untuk **MySQL tidak bisa di jalur ini** — terukur 2026-11-02 bahwa
+      `mysql_scanner` tidak punya satu pun kata kunci TLS (`ssl-ca`, `ssl-capath`, `ssl-mode` semua
+      `Unrecognized configuration parameter`) dan kredensial tidak bisa lewat opsi ATTACH (opsi yang dikenal
+      cuma `read_only`), jadi validasi titik tulis sekarang **menolak** `root_cert` di profil MySQL alih-alih
+      menyimpan path yang diam-diam diabaikan; MySQL di belakang TLS tetap lewat bastion/VPN (§5.7). Yang masih
+      terbuka: MongoDB (`tlsCAFile` di URI — bisa, karena Mongo jalan lewat driver Go), **path relatif CA ikut
+      §5.5** begitu bundle `.muara` jadi storage (M3), dan **UI**: web baru menerima `root_cert` lewat API,
+      form-nya belum ada kolomnya.
 
 **Exit:** tree menampilkan kolom Mongo dan Postgres berdampingan; satu query lintas dua alias jalan;
 pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang bastion/VPN terbukti jalan pada

@@ -495,6 +495,48 @@ Belum terukur dan butuh sumber Postgres **bersertifikat TLS**: apakah scanner me
 verifikasi berhasil/gagal (`sslmode=verify-ca` sungguhan). Sample postgres di mesin ini sedang rusak dan
 infrastruktur milik user, jadi pembuktiannya ditunda — yang sudah terbukti adalah string-nya diterima.
 
+## 17. Grammar DSN `mysql_scanner`, diukur per karakter (2026-11-02)
+
+`AttachMySQL` juga menerima string mentah ke scanner, tapi grammar-nya **berbeda total** dari libpq: ini
+`key=value` dipisah spasi, bukan URI dan bukan bentuk driver Go. Cara mengukur sama seperti §16 — scanner
+memvalidasi nama opsi dan bentuk token *saat membaca string*, jadi `host=127.0.0.1 port=1` (alamat mati)
+sudah cukup memisahkan "stringnya dimengerti" (`Can't connect to MySQL server`) dari "stringnya ditolak"
+(`Invalid dsn …` / `Unrecognized configuration parameter …`). Hasil lengkap, DuckDB 1.1.3 + `mysql_scanner`
+dari bundel aplikasi:
+
+| bentuk | hasil | aturan |
+| --- | --- | --- |
+| `host=db.internal port=3306 user=reader passwd=s3cret db=sales` | parsed | kunci yang diterima **hanya** `host, port, user, passwd, db, socket` |
+| `root:s3cret@tcp(127.0.0.1:1)/sales` | `Invalid dsn …` | bentuk driver Go **ditolak** — inilah yang selama ini dikirim web |
+| `mysql://root:s3cret@127.0.0.1:1/sales` | `Invalid dsn …` | URI juga ditolak |
+| `passwd=` / `db=` | `Unrecognized configuration parameter ""` | nilai kosong dipecah jadi opsi bernama kosong; **kunci yang tidak ada harus dihilangkan**, bukan dikosongkan |
+| `passwd=a b` | `expected key=value pairs separated by spaces` | spasi (dan tab) wajib dalam kutip ganda |
+| `passwd=a=b` | `Unrecognized configuration parameter ""` | `=` di dalam nilai ikut memecah → wajib dikutip |
+| `passwd=p@ss/w:ord` | parsed | `@ / :` aman apa adanya di bentuk tanpa kutip |
+| `passwd=C:\path` | parsed | **di luar kutip, backslash verbatim** — jangan dilipatgandakan |
+| `passwd="C:\path"` | `backslash can only escape \ or "` | di dalam kutip hanya `\\` dan `\"` yang sah |
+| `passwd="C:\\path"` | parsed | bentuk benar untuk backslash di nilai berspasi, mis. `C:\My Files` |
+| `passwd=say"hi"` | parsed | kutip di tengah nilai aman selama tidak di awal |
+| `passwd="leading` | `unterminated quote` | nilai yang **diawali** `"` masuk mode kutip → wajib `passwd="\"leading"` |
+| `passwd=""` | parsed | nilai kosong bisa diwakili, jadi `""` bukan selalu bug |
+| `port=0` | parsed, connects as 3306 | jangan kirim `port=0`; hilangkan kuncinya |
+| `ssl-ca=…` / `ssl-capath=…` / `ssl-mode=…` | `Unrecognized configuration parameter …` | **scanner ini tidak punya opsi TLS apa pun** |
+
+Tiga kesimpulan produk:
+1. **`MySQLDSN` milik engine, bukan web.** Aturan kutipnya aneh dan milik scanner; ditaruh di
+   `muara.bi/engine/duckdb/mysql.go` supaya kedua produk mengirim string yang sama. Web tinggal
+   `attachConnection` → `duckdb.MySQLDSN(duckdb.MySQLSource{…})`.
+2. **CA privat untuk MySQL tidak bisa dikerjakan di jalur ini.** Bukan "belum", tapi tidak ada kata kunci
+   tempat meletakkannya, dan kredensial pun tidak bisa lewat opsi ATTACH (satu-satunya opsi yang dikenal
+   `read_only`). Jadi validasi di titik tulis menolak `root_cert` pada profil MySQL — menyimpan path yang
+   diam-diam diabaikan lebih buruk daripada ditolak dengan pesan beralasan. MySQL di belakang TLS tetap bisa
+   lewat bastion/VPN (§5.7), dan `mysql://?ssl-ca=` hanya mungkin kalau sumber MySQL pindah ke pembaca Go.
+3. **Batas pembuktian:** yang terukur adalah *parsing*, bukan nilai yang benar-benar dikirim ke server —
+   error scanner menampilkan kembali string aslinya, bukan hasil unescape. Password berisi karakter aneh
+   terbukti "diterima scanner", tapi byte yang identik di atas kabel baru bisa dipastikan dengan server
+   MySQL sungguhan. Tes tingkat scanner (`engine/duckdb/mysql_scanner_test.go`) karena itu diberi batas:
+   jalan hanya kalau `DUCKDB_EXTENSION_DIRECTORY` menunjuk bundel berisi `mysql_scanner`.
+
 
 
 

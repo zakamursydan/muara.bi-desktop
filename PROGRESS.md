@@ -403,10 +403,42 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      (`crypto/x509`) supaya `TLSConfig.RootCAs` bisa dipakai sebagai bukti, dan satu tes injeksi: password berisi
      `sslrootcert=/etc/hosts` tidak boleh menambah parameter (pgx akan error kalau mencoba membacanya).
      Gerbang empat-mode hijau; `gofmt -l` bersih.
-  Belum: CA untuk MySQL dan MongoDB, path relatif CA saat bundle pindah mesin (M3), UI form web (hari ini
-  `root_cert` hanya bisa lewat API), dan **satu cacat yang muncul sambil membaca builder MySQL**:
-  `attachConnection` merakit `%s:%s@tcp(%s:%d)/%s` tanpa quoting, sehingga password berisi `@` atau `/` sudah
-  merusak DSN sebelum TLS dibicarakan — kasus yang sama persis dengan bug `sslmode` ganda yang baru ditutup.
+  Belum: CA untuk **MongoDB** (`tlsCAFile`, masih mungkin karena Mongo lewat driver Go), path relatif CA saat
+  bundle pindah mesin (M3), dan UI form web (hari ini `root_cert` hanya bisa lewat API).
+- **Builder MySQL dibetulkan + grammar `mysql_scanner` diukur per karakter (2026-11-02, temuan 2026-10-31):**
+  cacat sampingan yang muncul waktu membaca builder CA — `attachConnection` web merakit
+  `%s:%s@tcp(%s:%d)/%s`, bentuk driver Go, dan **scanner menolaknya** (`Invalid dsn … - expected key=value
+  pairs separated by spaces`). Jadi jalur query MySQL tidak pernah bisa jalan lewat DuckDB sama sekali, bukan
+  hanya rapuh terhadap karakter aneh; password berisi `@` atau `/` merusak string lebih dulu, persis pola bug
+  `sslmode` ganda.
+  1. **Grammar diukur, bukan ditebak.** Probe pakai alamat mati `127.0.0.1:1`: scanner memvalidasi nama opsi
+     dan bentuk token *saat membaca string*, jadi "Can't connect" = stringnya dimengerti, `Invalid dsn` /
+     `Unrecognized configuration parameter` = ditolak. Yang terbuktikan (tabel lengkap di engine-map §17):
+     kunci hanya `host, port, user, passwd, db, socket` · nilai kosong harus dihilangkan (`passwd=` jadi opsi
+     bernama kosong) · spasi/tab/`=` wajib dalam kutip ganda · di dalam kutip hanya `\\` dan `\"` yang sah,
+     di luar kutip backslash **verbatim** (`C:\path` benar apa adanya) · kutip di tengah nilai aman, tapi nilai
+     yang **diawali** `"` wajib diekscape (`unterminated quote`) · `port=0` diam-diam jadi 3306.
+     Dua kali tebakan saya sendiri salah dan ketahuan cuma karena diukur: awalinya mengira backslash selalu
+     perlu dilipatgandakan, dan lupa bahwa kutip di posisi pertama mengubah mode parsing.
+  2. **Perakitnya pindah ke engine** (`muara.bi/engine/duckdb/mysql.go`: `MySQLSource`, `MySQLDSN`,
+     `ErrUnusableMySQLSource`) karena aturannya milik scanner — dua produk harus mengirim string yang sama.
+     Web tinggal `attachConnection` → `duckdb.MySQLDSN(...)`, dan sumber yang mustahil (host kosong, port di
+     luar 0-65535) berhenti sebelum `ATTACH`.
+  3. **CA untuk MySQL ditutup sebagai "tidak bisa di jalur ini", bukan ditunda.** `ssl-ca`, `ssl-capath`, dan
+     `ssl-mode` semua `Unrecognized configuration parameter`, dan satu-satunya opsi ATTACH yang dikenal scanner
+     adalah `read_only` — kredensial pun tidak bisa lewat opsi. Menyimpan `root_cert` di profil MySQL berarti
+     profil yang **terlihat** terverifikasi padahal TLS-nya mati, jadi `checkRootCertDriver` menolaknya di titik
+     tulis (400 dengan nama driver + alasannya). MySQL self-signed tetap bisa diakses lewat bastion/VPN (§5.7
+     aturan 1&2).
+  Bukti: `engine/duckdb/mysql_test.go` (grammar murni, 5 tes) + `mysql_scanner_test.go` (tingkat scanner —
+  11 sumber termasuk semua bentuk jebakan diterima scanner, dan 4 bentuk yang **tidak** kami emit ditolak:
+  `user:pass@tcp()/db`, `mysql://…`, `ssl-ca=`, `rootcert=`) + 3 tes sisi web di `session_preparer_test.go`
+  (`recordingSession` membuktikan DSN yang dikirim ke `AttachMySQL` dan bahwa sumber ditolak tidak pernah
+  sampai ATTACH). Tes scanner butuh `DUCKDB_EXTENSION_DIRECTORY` menunjuk bundel berisi `mysql_scanner`; tanpa
+  itu di-*skip*, karena hasilnya adalah pernyataan tentang scanner, bukan tentang kode kita. Batas yang jujur:
+  yang terukur adalah **parsing**, bukan byte yang dikirim ke server — error scanner menampilkan string asli,
+  bukan hasil unescape, jadi kepastian bit-per-bit butuh server MySQL sungguhan. Gerbang empat-mode
+  (engine+web × `CGO_ENABLED=1/0`) hijau; `gofmt -l` bersih.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -533,9 +565,14 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
    (a) **UI** — web hanya menerima `root_cert` lewat API; form koneksi belum punya kolomnya, dan sesuai cara
    kerja yang disepakati: **wireframe/mockup dulu sebelum koding UI**, bukan langsung input;
-   (b) **MySQL** — `ssl_ca` di DSN driver, dan sebelum TLS dibahas: builder MySQL hari ini merakit
-   `%s:%s@tcp(%s:%d)/%s` **tanpa quoting**, jadi password berisi `@`/`/` sudah merusak DSN (kasus identik dengan
-   bug `sslmode` ganda 2026-10-31);
+   (b) **MySQL — selesai 2026-11-02, dan jawabannya "tidak bisa di jalur DuckDB".** Builder
+   `%s:%s@tcp(%s:%d)/%s` yang ternyata **ditolak scanner** itu sudah diganti dengan `duckdb.MySQLDSN` di engine
+   (grammar lengkap dan tabel hasil probe ada di engine-map §17), dan `ssl_ca` tidak pernah ada tempatnya:
+   scanner tidak
+   mengenal satu pun kata kunci TLS, jadi `checkRootCertDriver` menolak `root_cert` di profil MySQL dengan 400
+   beralasan. Sisa pekerjaan MySQL hanya dua: **sampel server MySQL sungguhan** untuk membuktikan byte yang
+   dikirim (yang terukur sekarang baru parsing), dan jalur TLS lewat driver Go kalau nanti sumber MySQL memang
+   perlu CA — keduanya bukan blocker M2;
    (c) **MongoDB** — `tlsCAFile` di URI;
    (d) **path relatif CA** ikut §5.5, baru relevan ketika `.muara` jadi storage di M3.
 3. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
