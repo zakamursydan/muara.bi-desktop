@@ -95,7 +95,11 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   sumber diperluas, penanda pemotongan sampai ke layar); yang tersisa di M2 butuh server atau jaringan nyata —
   skema terkualifikasi di cache, forwarder bastion, dan pengukuran lewat jaringan. **M3 dimulai hari yang sama:**
   `internal/bundle/` adalah store `.muara` yang pertama, dan butir "format & manifest berversi + save atomik +
-  `View` kelas satu" selesai dengan ketiga exit criterion-nya terukur (detail di §3 dan PLAN M3).
+  `View` kelas satu" selesai dengan ketiga exit criterion-nya terukur (detail di §3 dan PLAN M3). **Butir kedua M3
+  ikut selesai 2026-11-02:** aplikasi bekerja pada **satu berkas terbuka** (`document.go` — satu sesi DuckDB per
+  dokumen) dengan `Profile` per mesin di luar bundle (`internal/profile/`); exit §5.1 terukur, dan yang tinggal di
+  butir ini hanya diklik: tombol di window menunggu sketsa disetujui, dialog berkas Wails sudah ditulis tapi tidak
+  bisa dibuktikan tanpa GUI.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -636,6 +640,45 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     implementasi dua konsumen. Gerbang dua repo **`ALL-DONE total-fail=0`** (`GATE-DONE fail=0` empat mode web,
     `CGO-OFF-REJECTED-OK`, desktop CGO=1 build/vet/test, `meminfo` 6 target, `gofmt` bersih di dua repo).
     Engine tidak disentuh sama sekali di butir ini, jadi tidak ada alasan angka di repo web berubah.
+- **Aplikasi akhirnya memegang berkas: satu dokumen terbuka + `Profile` lokal (2026-11-02, M3 butir kedua —
+  exit §5.1 terukur, dialog-nya belum):** `document.go` (state dokumen + mount) dan `internal/profile/`
+  (peta alias per mesin) adalah lapisan yang membuat store kemarin bisa dipakai; tanpa keduanya `.muara` masih
+  cuma format di atas disk.
+  - **Satu dokumen = satu sesi DuckDB, dan itu keputusan yang diukur, bukan gaya.** DuckDB menyimpan katalog
+    hasil `ATTACH` dan temp view seumur sesi, jadi memakai ulang sesi lama berarti query di berkas B menjawab
+    dari server yang di-attach berkas A — diam-diam dan salah. `TestOpeningASecondBundleLosesTheFirstBundlesAliases`
+    membuktikan dua sisinya: temp view bundle pertama **gagal dibaca** setelah bundle kedua dibuka, sedangkan
+    sumber bundle kedua sendiri menjawab 6 baris.
+  - **`Open` bukan all-or-nothing.** Tiap sumber dapat satu baris laporan (`name/kind/mounted/target/reason`):
+    CSV/Parquet/JSON masuk sebagai temp view (`RegisterFileSource`), SQLite sebagai katalog (`AttachSQLite`) —
+    satu `Open` lalu `Run` View-nya menjawab 3 baris tanpa potongan. Path hasil resolver di-`os.Stat` **lebih
+    dulu** supaya "berkasnya hilang" dan "path-nya ternyata folder" punya laporan berbeda (engine membalas satu
+    IO Error yang sama untuk keduanya, §5.5), dan berkas data yang hilang **tidak** membuat bundle gagal terbuka:
+    itu temuan pre-flight M4, bukan alasan membuang kerjaan orang.
+  - **"Mulai kosong" menulis betulan dan tidak menimpa.** `Untitled.muara` di `~/Documents/muara.bi` (di mesin ini
+    `Documents` ada; kalau tidak, folder konfigurasi per-user) — berkasnya ada di disk sejak detik pertama, jadi
+    crash tidak menghapus kerjaan yang belum bernama. Panggilan kedua menghasilkan `Untitled-2.muara` sementara
+    byte berkas pertama tetap identik; menimpa satu-satunya salinan user bukan hal yang boleh terjadi diam-diam.
+  - **SQLite sekarang tunduk pada aturan path yang sama.** Bentuk simpanan tidak menambah kunci JSON apa pun —
+    yang berubah hanya *driver mana yang boleh membawa blok `file`* — dan `SaveAs` ke folder baru terbukti
+    menyimpan `data/orders.csv` **dan** `data/warehouse.sqlite` relatif (yang sebelumnya mustahil: koneksi
+    `sqlite` tidak punya tempat menyimpan path-nya sama sekali).
+  - **`Profile` = berkas per mesin di luar bundle, dan aturannya struktural lagi.** `os.UserConfigDir()` →
+    `muara.bi/profile.json`; tidak ada field string yang boleh bernama password/token/kunci — yang tersimpan
+    hanya `secret{kind,label}` (`keychain`/`env`), jadi tes refleksi yang sama seperti di store berlaku lagi.
+    `Secret()` **menolak** `keychain` dengan menyebut labelnya, tidak membalas `""`: password kosong akan sampai
+    ke server sebagai "authentication failed" dan menunjuk user ke pintu yang salah. Profil rusak tidak
+    menghentikan aplikasi — bundle bersumber file tetap terbuka, dan window menampilkan alasannya.
+  - **§5.2 terukur dari sisi alamat:** laporan mount memakai profil **di atas** alamat yang ditulis exporter di
+    bundle (profil `10.20.3.4:5432` tampil, `db.internal` tidak), dan tanpa profil bundle tetap menampilkan
+    alamatnya sendiri. Yang belum bisa dan ditulis apa adanya di laporan: koneksi ber-server tidak ter-attach —
+    `mongodb` karena sesi desktop belum punya jalur attach sama sekali; `postgres`/`mysql` karena conninfo libpq
+    masih tinggal di `muara.bi/core` yang tidak boleh diimport desktop, dan keychain baru ada di M6.
+  - **Bukti:** 8 tes baru di `document_test.go` (+1 subtes penolakan di store, 8 tes di `internal/profile`),
+    `ALL-DONE total-fail=0` di gate dua repo, `CGO-OFF-REJECTED-OK`. Engine **tidak disentuh** — yang berubah
+    hanya bentuk validasi desktop (`sqlite` wajib membawa path). Dialog berkas (`OpenWithDialog` /
+    `SaveAsWithDialog`) sudah ditulis memakai dialog Wails di sisi Go supaya path tidak pernah diketik di
+    webview, dan **belum terukur**: itu butuh satu klik manusia, dan UI-nya menunggu sketsa disetujui.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -769,10 +812,13 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    Ketiga exit M3 terukur: save → buka ulang menjaga kedua View utuh, isi bundle yang sudah dideflate tidak
    memuat satu pun string kredensial, dan bundle yang berpindah folder bersama berkas datanya tetap resolve.
    Yang tersisa, urut dari yang paling dibutuhkan:
-   (a) **aplikasi harus bekerja pada satu berkas terbuka** (BRD §5.1): `QueryService` hari ini membuat engine di
-     memori dan tidak pernah membaca atau menulis `.muara`. Butuh dialog berkas dari Wails, `Untitled.muara`
-     untuk "mulai kosong", dan `Profile` lokal (pemetaan alias → host + kredensial mesin ini) yang **tidak**
-     ikut diekspor — dua hal terakhir inilah yang membuat store hari ini belum bisa dipakai pengguna;
+   (a) **aplikasi bekerja pada satu berkas terbuka — selesai 2026-11-02 (`document.go`, `internal/profile/`);
+     yang tinggal cuma diklik:** `QueryService` memegang satu dokumen (`Open`/`NewUntitled`/`Save`/`SaveAs`/
+     `Current`) bersama **satu sesi DuckDB per dokumen**, `Untitled.muara` ditulis ke disk dan tidak pernah
+     ditimpa, dan `Profile` lokal (alias → host + *sumber* kredensial, bukan kredensialnya) hidup di
+     `~/Library/Application Support/muara.bi/profile.json` tanpa pernah ikut bundle. Sisanya: tombol di window
+     (butuh sketsa disetujui user) dan satu klik nyata pada dialog berkas Wails — `OpenWithDialog` /
+     `SaveAsWithDialog` sudah ditulis tapi tidak bisa dibuktikan tanpa GUI;
    (b) **`secrets.enc`**: argon2id → AES-256-GCM, kode baru (`cryptohelper` web hanya AES-GCM dengan key dari
      env). Sampai blok itu ada, `Open` dengan sengaja menolak bundle yang memuat `secrets.enc`;
    (c) **tiga tingkat ikut-tidaknya definisi koneksi saat export** — bentuk tipenya sudah siap (tingkat 2

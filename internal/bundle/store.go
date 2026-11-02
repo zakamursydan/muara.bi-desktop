@@ -317,10 +317,11 @@ func (b *Bundle) forAnchor(anchor string) (*Bundle, error) {
 	return &out, nil
 }
 
-// ResolveFileSources maps the alias of every file connection to a path this
-// machine can read, resolved against the folder of bundlePath. It is the other
-// half of §5.5: paths travel relative and are re-read here, so moving a bundle
-// to another folder re-points every source at once.
+// ResolveFileSources maps the alias of every connection that reads a file —
+// `file` and `sqlite` — to a path this machine can read, resolved against the
+// folder of bundlePath. It is the other half of §5.5: paths travel relative and
+// are re-read here, so moving a bundle to another folder re-points every source
+// at once.
 //
 // A path that resolves but names a missing file is not an error at this layer —
 // pre-flight has to be able to report it as one of the three fates rather than

@@ -149,9 +149,12 @@ type SSHTarget struct {
 	User string `json:"user,omitempty"`
 }
 
-// FileSource points at one CSV/Parquet/JSON file. Path is stored relative to
-// the folder of the .muara file whenever the file can live there; outside it,
-// it stays an absolute machine-local path (§5.5).
+// FileSource points at one file this machine reads: a CSV/Parquet/JSON for a
+// `file` connection, or the database file of a `sqlite` connection — SQLite has
+// no server, so its "host" is a path and §5.5's rule applies to it in exactly
+// the same way. Path is stored relative to the folder of the .muara file
+// whenever the file can live there; outside it, it stays an absolute
+// machine-local path (§5.5).
 type FileSource struct {
 	Path string `json:"path"`
 }
@@ -323,9 +326,10 @@ func (b *Bundle) validate(checkRefs bool) error {
 			return fmt.Errorf("%w: connection %q has driver %q, want postgres, mysql, sqlite, mongodb or file",
 				ErrInvalid, c.ID, c.Driver)
 		}
-		if c.Driver == DriverFile {
+		if c.Driver == DriverFile || c.Driver == DriverSQLite {
 			if c.File == nil || strings.TrimSpace(c.File.Path) == "" {
-				return fmt.Errorf("%w: connection %q is a file source but names no path", ErrInvalid, c.ID)
+				return fmt.Errorf("%w: connection %q reads %q from a file but names no path",
+					ErrInvalid, c.ID, c.Driver)
 			}
 		} else if c.File != nil {
 			return fmt.Errorf("%w: connection %q is driver %q yet carries a file source", ErrInvalid, c.ID, c.Driver)

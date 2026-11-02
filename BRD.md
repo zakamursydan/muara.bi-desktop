@@ -98,6 +98,20 @@ Tidak ada lapisan metadata untuk settingan. Satu `.muara` (zip berisi JSON) adal
 dan besar (query history, log run alert, cache hasil) tinggal di SQLite terpisah yang **tidak ikut ter-export**.
 Aplikasi selalu bekerja pada satu berkas terbuka; "mulai kosong" membuat `Untitled.muara`.
 
+**Ditegakkan di kode sejak 2026-11-02 (M3a, `document.go` + `internal/profile/`).** Kalimat di atas sekarang punya
+wujud: `QueryService` memegang **satu** dokumen (`Open` / `NewUntitled` / `Save` / `SaveAs` / `Current`) bersama
+**satu sesi DuckDB** — keduanya diganti bersamaan karena DuckDB menyimpan katalog ter-attach dan temp view seumur
+sesinya; memakai sesi lama akan membuat query di berkas B menjawab dari server yang di-attach berkas A, diam-diam
+dan salah. Terukur: setelah `Open` berkas kedua, temp view milik berkas pertama **gagal dibaca**, sedangkan sumber
+berkas kedua sendiri menjawab. "Mulai kosong" menulis `Untitled.muara` **ke disk** (`~/Documents/muara.bi`;
+kalau `Documents` tidak ada, folder konfigurasi per-user) dan tidak pernah menimpanya — nama berikutnya
+`Untitled-2.muara`, karena menimpa satu-satunya salinan kerjaan user tidak bisa dibatalkan.
+`Profile` juga berdiri: satu berkas per mesin di **luar** bundle (`~/Library/Application Support/muara.bi/profile.json`,
+dibaca sekali saat app start) yang memetakan alias → host/port/user/sslmode + **dari mana kredensialnya diambil**.
+Aturan no-secret-nya struktural seperti di store — tidak ada satu pun field bertipe string yang boleh bernama
+password/token/kunci; yang tersimpan cuma `kind` (`keychain`/`env`) dan `label`-nya. Membaca profil yang rusak
+**tidak** menghentikan aplikasi: bundle bersumber file tetap terbuka, dan window menampilkan alasannya.
+
 ### 5.2 View dan Project
 `View` adalah unit settingan terkecil yang bisa di-export. `Dashboard` hanyalah layout yang mereferensi ID View.
 **`Project`** adalah lapisan organisasi di atasnya, dan **keanggotaannya berupa referensi, bukan kepemilikan**:
@@ -160,6 +174,14 @@ mesin ini tapi tidak portabel, dan itu memang bentuk yang tersisa ketika user me
 bundle.
 
 Batas jumlah & ukuran file per bundle ditetapkan di M3 dari angka nyata.
+
+**Ditegakkan di kode sejak 2026-11-02 (M3a, `document.go`).** Dua hal menyusul begitu aturannya benar-benar dipakai.
+(1) **SQLite ikut aturan ini tanpa perubahan**: koneksi `sqlite` tidak punya server, jadi path database-nya tinggal
+di blok `file`; `Connection` menolak driver `sqlite` maupun `file` yang tidak membawa path, dan store menulisnya
+relatif seperti CSV — bundle hasil SaveAs menyimpan `data/orders.csv` **dan** `data/warehouse.sqlite` (terukur).
+(2) Tiga nasib diperiksa **saat membuka**, bukan menunggu query gagal: `os.Stat` atas hasil resolver memisahkan
+"berkasnya tidak ada" dari "path-nya ternyata folder" sebelum DuckDB sempat membalas satu IO Error yang sama untuk
+keduanya, dan jawabannya masuk laporan yang dibaca window sementara sumber lain tetap terpasang.
 
 ### 5.6 Tanpa drag-and-drop untuk menyusun query
 Membangun query = tugas seleksi; klik/checkbox lebih cepat dan hambatan pemula itu konseptual, bukan mekanis.
@@ -245,6 +267,13 @@ bernama tak dikenal, atau yang menuliskan satu nama entri dua kali. Yang **tidak
 View yang menyebut alias yang belum ada di mesin ini — itu temuan pre-flight (§5.4), bukan alasan membuang seluruh
 bundle. Perilaku itu dites, dan kumpulan kunci JSON tiap entri ikut ditegakkan di tes, jadi menambah bidang ke
 bentuk simpanan adalah perubahan format yang harus tertulis di sini lebih dulu.
+
+**`Profile` ikut tertulis sebagai tipe, bukan sebagai ide (2026-11-02, `internal/profile/`).** Isi berkas per mesin
+itu `machine` + `targets[]` (`alias`, `host`, `port`, `user`, `ssl_mode`, `secret{kind,label}`, `note`) — dia
+**tidak pernah** masuk zip bundle, dan tes format tetap hijau karena tidak ada kunci baru di tujuh entri. Satu
+perubahan bentuk simpanan memang terjadi dan sengaja: `file` sekarang boleh dibawa koneksi ber-driver `sqlite`
+(juga wajib, seperti `file`). Kumpulan kunci JSON tiap entri tidak berubah, jadi berkas lama tetap terbaca — yang
+berubah hanya **driver mana yang boleh punya path**, dan itu konsekuensi §5.5, bukan skema baru.
 
 ## 7. Kontrak wajib (MUST)
 

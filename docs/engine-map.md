@@ -789,3 +789,36 @@ perlu diingat orang berikutnya yang menyentuh engine:
   `builder_state` + `raw_sql` yang berbeda-beda = **625 KB** `views.json` tak terkompresi → **16 KB** di dalam
   zip. Angka itu menjawab sebagian pertanyaan "batas berapa" — definisi murah, yang berat adalah berkas data di
   *samping* `.muara`, dan itu belum punya angka sampai bundel benar-benar ikut dipindah.
+
+## 23. Permukaan mount dipakai dua produk: dokumen = sesi (2026-11-02, M3)
+
+§3 memutuskan bahwa `Attach*` dan `MountSemanticModels` menerima **struct milik engine** supaya web dan desktop
+memetakan inputnya masing-masing ke bentuk yang sama. Keputusan itu sekarang punya konsumen kedua yang nyata, dan
+ia memanggil tepat tiga method itu — tanpa satu baris SQL yang dirakit di sisi desktop:
+
+| Method engine | Dipanggil dari desktop | Bentuk masukannya |
+|---|---|---|
+| `RegisterFileSource(ctx, view, path)` | `document.go` `mountFile()` untuk driver `file` | alias View + path **hasil `ResolveFileSourcePath`** (absolut), bukan `Connection.file.path` mentah |
+| `AttachSQLite(ctx, alias, path)` | sama, untuk driver `sqlite` | alias catalog + path absolut yang sama |
+| `MountSemanticModels(ctx, session, []SemanticModel)` | `mountLocked()` | model dari `semantic_models.json`, **satu panggilan per model** |
+| `Query` / `ValidateQuery` | `query_service.go` `Run()` | tidak berubah dari spike |
+
+Tiga hal yang hanya kelihatan setelah berkasnya benar-benar dibuka:
+
+- **Satu dokumen = satu sesi, dan keduanya diganti bersamaan.** DuckDB menyimpan catalog yang di-ATTACH *dan*
+  temp view seumur sesinya. Kalau `Open` hanya menukar `doc`, query di berkas B menjawab dari server yang
+  di-attach berkas A — diam-diam dan salah. Terukur: setelah `Open` bundle kedua, temp view milik bundle pertama
+  **gagal dibaca**, sedangkan sumber bundle kedua menjawab. Karena itu `openLocked` membuka sesi baru dan
+  **menutup sesi lama hanya kalau sesi baru berhasil**; bundle rusak tidak membuang dokumen yang sedang dikerjakan.
+- **Satu panggilan `MountSemanticModels` per model**, bukan satu panggilan untuk daftar seluruhnya: satu model
+  dengan SQL yang ditolak `ValidateQuery` hanya mengorbankan dirinya, sisanya tetap ter-mount dan laporan mount
+  menyebut yang gagal dengan alasannya.
+- **`Connection.file.path` tidak pernah masuk SQL apa adanya** — yang masuk adalah keluaran resolver §22. Ini
+  pembeda yang sunyi: bentuk mentahnya relatif (`data/orders.csv`), dan §22 mengukur bahwa reader menyelesaikan
+  pattern terhadap folder kerja, jadi mengirimnya langsung membuat hasil tergantung CWD proses.
+
+Yang **tidak** dipanggil desktop, dan bukan karena lupa: `AttachPostgres`/`AttachMySQL` butuh conninfo yang
+pembentuknya tinggal di `muara.bi/core` (`internal/service/session_preparer.go`), yang tidak boleh diimport desktop
+(aturan anti-siklus §3), dan engine punya `MySQLDSN` saja. Sumber server karena itu **dilaporkan, tidak di-attach**,
+dengan alasan yang menyebut gap sungguhan — dan `AttachMongo` tidak ada di `Session` sama sekali (sumber Mongo di
+web dialiri lewat driver Go, §18). Keduanya tercatat di PLAN M3/M6, bukan ditutupi.

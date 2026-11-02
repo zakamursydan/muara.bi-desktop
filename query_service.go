@@ -6,10 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
+	"muara.bi/desktop/internal/profile"
 	"muara.bi/engine/duckdb"
 	"muara.bi/engine/sqlident"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // extensionDirEnv is how a developer points a build at a scratch bundle.
@@ -17,9 +21,28 @@ const extensionDirEnv = "DUCKDB_EXTENSION_DIRECTORY"
 
 // QueryService is the only bridge between the webview and the engine: the UI
 // never sees DuckDB, only these methods.
+//
+// The mutex is not decoration — the webview calls these methods from whatever
+// goroutine the JS bridge lands on, and opening a bundle replaces the session
+// underneath a query that may still be running.
 type QueryService struct {
+	mu sync.Mutex
+
 	engine  duckdb.Engine
 	session duckdb.Session
+
+	doc *openDocument
+
+	// app is the running window, kept so a service method can ask the OS for a
+	// path instead of letting the webview type one. main assigns it once, before
+	// app.Run, and a method that needs it refuses when it is still nil.
+	app *application.App
+
+	// profile is this machine's alias map, read once at startup from outside any
+	// bundle. profileError keeps a broken file visible in the window instead of
+	// quietly mounting nothing.
+	profile      *profile.Profile
+	profileError string
 }
 
 // EngineStatus is what the window shows before any query runs, so "the engine
@@ -52,15 +75,46 @@ func NewQueryService() (*QueryService, error) {
 		_ = engine.Close()
 		return nil, err
 	}
-	return &QueryService{engine: engine, session: session}, nil
+	service := &QueryService{engine: engine, session: session}
+	service.loadProfile()
+	return service, nil
+}
+
+// loadProfile reads this machine's alias map once, at startup. A profile that
+// cannot be read is not a reason to refuse to start — a bundle whose sources are
+// files needs no alias map at all — but it is a reason to say so in the window,
+// because the user is about to wonder why `sales` points nowhere.
+func (s *QueryService) loadProfile() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.profile = &profile.Profile{}
+	path, err := profile.DefaultPath()
+	if err != nil {
+		s.profileError = err.Error()
+		return
+	}
+	loaded, err := profile.Load(path)
+	if err != nil {
+		s.profileError = fmt.Sprintf("%s: %v", path, err)
+		return
+	}
+	s.profile = loaded
 }
 
 func (s *QueryService) Close() error {
-	_ = s.session.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != nil {
+		_ = s.session.Close()
+		s.session = nil
+	}
 	return s.engine.Close()
 }
 
 func (s *QueryService) Status() (*EngineStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	res, err := s.session.Query(context.Background(),
 		`SELECT version() AS version,
 			current_setting('max_memory') AS max_memory,
@@ -96,6 +150,8 @@ func (s *QueryService) AttachSample() error {
 	if !sqlident.IsPlain(alias) {
 		return fmt.Errorf("alias %q is not a plain identifier", alias)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.session.AttachPostgres(context.Background(), alias, dsn)
 }
 
@@ -116,6 +172,8 @@ func (s *QueryService) AttachSampleSQLite() error {
 	if !sqlident.IsPlain(alias) {
 		return fmt.Errorf("alias %q is not a plain identifier", alias)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.session.AttachSQLite(context.Background(), alias, path)
 }
 
@@ -126,6 +184,8 @@ func (s *QueryService) Run(sql string) (*duckdb.QueryResult, error) {
 	if err := duckdb.ValidateQuery(sql); err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.session.Query(context.Background(), sql, duckdb.QueryOptions{MaxRows: duckdb.DefaultMaxRows})
 }
 

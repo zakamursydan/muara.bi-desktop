@@ -479,6 +479,13 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       `Bundle.ResolveFileSources` membacanya ulang terhadap anchor yang sama, dan `~/…` atau `../…` yang
       ditemukan di dalam berkas orang lain membuat bundle ditolak dengan alasan — sedangkan berkas yang
       **hilang** tidak, karena itu justru nasib yang harus dilaporkan pre-flight (§5.5).
+      **Pemakai keduanya sekarang aplikasi itu sendiri** (2026-11-02, `document.go`): saat `Open`, tiap path hasil
+      resolver di-`os.Stat` lebih dulu supaya "tidak ada" dan "ternyata folder" punya laporan berbeda, CSV/Parquet/
+      JSON masuk sebagai temp view (`RegisterFileSource`) dan SQLite sebagai katalog (`AttachSQLite`) — terukur satu
+      `Open` membuat `SELECT ... FROM order_lines` menjawab 3 baris tanpa potongan lewat model semantik, dan
+      `wh.orders` menjawab 6 baris lewat katalog ter-attach. **SQLite ikut aturan path ini**: koneksi ber-driver
+      `sqlite` wajib membawa blok `file`, jadi SaveAs menyimpan `data/orders.csv` **dan** `data/warehouse.sqlite`
+      relatif terhadap folder barunya.
       **Angka awal untuk batasnya:** bundle kosong 1189 byte; 1000 View dengan `builder_state` + `raw_sql`
       berbeda = 625 KB `views.json` tak terkompresi → **16 KB** di dalam zip. Jadi ukuran bundle ditentukan
       berkas data di *samping* `.muara`, bukan definisi di dalamnya — sisa butir ini tinggal mengukur jumlah
@@ -486,6 +493,30 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       benar-benar ikut dipindah. Exit "dua berkas di folder berbeda di mesin yang sama tetap resolve" sudah
       terbukti dua lapis: `TestBundleRelativeSourceSurvivesTheFolderMoving` (engine) dan
       `TestBundleAndDataInDifferentFoldersStillResolve` (store).
+- [x] **Aplikasi bekerja pada satu berkas terbuka + `Profile` lokal** (2026-11-02, `document.go`, `dialogs.go`,
+      `internal/profile/`; BRD §5.1 + §6): `QueryService` punya `Open` / `NewUntitled` / `Save` / `SaveAs` /
+      `Current`, dan **satu sesi DuckDB per dokumen** — dokumen dan sesi diganti bersamaan karena DuckDB menyimpan
+      katalog ter-attach dan temp view seumur sesinya. Terukur: `Open` satu bundle lalu `Run` SQL milik View-nya
+      menjawab 3 baris; setelah `Open` bundle kedua, temp view bundle pertama **gagal dibaca** (itu justru
+      yang diingini) sementara sumber bundle kedua menjawab.
+      **"Mulai kosong" menulis berkas sungguhan**: `Untitled.muara` di `~/Documents/muara.bi` (folder konfigurasi
+      per-user kalau `Documents` tidak ada — di mesin ini ada, jadi itulah jalurnya), dan berkas itu tidak pernah
+      ditimpa: panggilan kedua menghasilkan `Untitled-2.muara` sedangkan byte berkas pertama tetap sama.
+      `SaveAs` **memindah** dokumen kerja (BRD §5.1 "Export = Save As") lalu me-mount ulang terhadap folder baru,
+      jadi hasil salin-folder langsung jalan tanpa satu pun path perlu ditunjuk ulang.
+      **Satu berkas yang rusak tidak membuang yang sedang dikerjakan:** `Open` atas berkas teks biasa menolak
+      dengan `ErrNotABundle`, sesi lama tetap hidup, dan query yang tadinya menjawab masih menjawab.
+      **`Profile` berdiri sebagai berkas per mesin di luar bundle** (`~/Library/Application Support/muara.bi/
+      profile.json`, `os.UserConfigDir()`; tidak ada field string berkata-kreditensial — yang tersimpan cuma
+      `secret{kind,label}`; `Secret()` menolak `keychain` dengan menyebut labelnya, bukan membalas password kosong,
+      karena "" akan sampai ke server sebagai "authentication failed" dan menunjuk pintu yang salah).
+      Laporan mount menjawab §5.2: alamat **dari profil mengalahkan yang dari bundle** (terukur: profil
+      `10.20.3.4:5432` tampil, `db.internal` tidak), dan tanpa profil bundle tetap menampilkan alamatnya sendiri.
+      Yang **belum** bisa di mesin ini dan tertulis apa adanya di laporan: koneksi ber-server tidak ter-attach —
+      `mongodb` karena sesi desktop belum punya jalur attach-nya sama sekali, dan `postgres`/`mysql` karena
+      conninfo libpq masih tinggal di `muara.bi/core` (web) yang tidak boleh diimport desktop, sementara keychain
+      baru M6. Dialog berkas (`OpenWithDialog`/`SaveAsWithDialog`) memakai dialog Wails di sisi Go — path tidak
+      pernah diketik di webview — dan **belum terukur**: butuh satu klik manusia.
 - [ ] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
       KDF-nya kode baru; `cryptohelper` hari ini hanya AES-GCM dengan key dari env.
 

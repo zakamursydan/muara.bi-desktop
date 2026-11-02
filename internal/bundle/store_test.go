@@ -358,6 +358,12 @@ func TestSaveRejectsBrokenDefinitions(t *testing.T) {
 		{"file source without a path", func(b *bundle.Bundle) {
 			b.Connections[1].File = &bundle.FileSource{}
 		}, "names no path"},
+		{"sqlite source without its database file", func(b *bundle.Bundle) {
+			// SQLite has no server: its "host" is a path, so a sqlite connection
+			// without one cannot be attached at all (§5.5 applies to it unchanged).
+			b.Connections[1].Driver = bundle.DriverSQLite
+			b.Connections[1].File = nil
+		}, "names no path"},
 		{"server driver carrying a file", func(b *bundle.Bundle) {
 			b.Connections[0].File = &bundle.FileSource{Path: "data/x.csv"}
 		}, "yet carries a file source"},

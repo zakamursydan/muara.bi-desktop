@@ -46,6 +46,10 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+	// The service asks the OS for a path through the window, so it needs the app
+	// it belongs to. Assignment happens before Run, which is the only moment a
+	// dialog can be answered.
+	service.app = app
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "muara.bi · M0 spike",
