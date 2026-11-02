@@ -447,7 +447,9 @@ Dua hal yang baru kelihatan waktu spike menyentuh sisi build, bukan sisi runtime
 ## 15. Sumber file: reader core, bukan extension (2026-11-02)
 
 Butir M2 "sumber file v1" ternyata tidak menyentuh bundel sama sekali, dan perbedaan itu cukup penting untuk
-dicatat terpisah — jangan tertukar dengan §12, yang mengurus extension:
+dicatat terpisah — jangan tertukar dengan §12, yang mengurus extension. **Cara path diperlakukan baru diukur
+2026-11-02 dan aturannya ada di §22**: reader memperlakukan argumennya sebagai pattern yang diselesaikan terhadap
+folder kerja, jadi tidak ada path yang boleh sampai ke SQL dalam bentuk relatif.
 
 - **Tiga reader sudah dikompilasi ke biner DuckDB**: `read_csv_auto` (juga untuk `.tsv` — delimiter dicium
   otomatis), `read_parquet`, `read_json_auto` (objek per baris maupun array). Karena tidak ada extension yang
@@ -730,3 +732,43 @@ spelling `constraint_type` MySQL nyata, dan apakah `postgres_scanner` memajang m
 seperti yang dikhawatirkan butir 5. Semua angka di §20 tentang Postgres tetap berlaku: sample-nya mati di
 sisinya sendiri, dan dicoba ulang 2026-11-02 lewat `AttachPostgres` masih membalas
 `FATAL: could not open file "global/pg_filenode.map": I/O error`.
+
+## 22. Path sumber file: apa yang dilakukan DuckDB pada sebuah string (2026-11-02)
+
+BRD §5.5 memutuskan "bentuk kanonik = relatif terhadap folder `.muara`", tapi alasannya belum pernah diukur.
+Pengukurannya satu hal: **kirim path apa adanya ke reader, lalu lihat berkas mana yang terbaca**. Semua angka di
+bawah dari DuckDB **v1.1.3** (dibaca lewat `SELECT version()` di session yang sama), darwin/arm64, dan sekarang
+dikunci oleh `engine/duckdb/filesource_path_cgo_test.go` — jadi upgrade DuckDB yang mengubah perilaku akan gagal di
+tes, bukan diam-diam membaca berkas yang salah di mesin user.
+
+| Perlakuan | Percobaan | Terukur | Aturan yang lahir |
+|---|---|---|---|
+| Path **relatif** | `read_csv_auto('orders.csv')` dengan CWD=A, lalu view yang sama dibaca setelah `chdir` ke B | baris berubah (1 → 4): resolusinya **terjadi lagi setiap pembacaan**, bukan sekali saat `CREATE VIEW` | resolver harus menelan path jadi absolut **sebelum** string itu masuk SQL |
+| Path **absolut** | berkas yang sama didaftarkan dari dua CWD yang tidak berhubungan | 3 baris dari kedua CWD | bentuk yang dipakai engine hari ini sudah benar; yang bocor hanyalah bentuk tersimpan |
+| `../` | `read_parquet('../p1.parquet')` dengan target ada | **terbaca** (2 baris) | penolakan "keluar folder bundle" bukan kemampuan DuckDB, jadi ia harus ditegakkan di Go |
+| `~` | daftarkan `~/muara-no-such-file-9c1a.csv` | `IO Error: No files found that match the pattern "~/muara-no-such-file-9c1a.csv"` — literalnya utuh | `~` ditolak, bukan diekspansi diam-diam |
+| `*` `?` | dua berkas `x1.csv` (1 baris) + `x2.csv` (2 baris), dibaca lewat `x*.csv` dan `x?.csv` | **3 baris** — keduanya terbaca, di csv, json, dan parquet | satu sumber = satu berkas; karakter glob ditolak dengan alasan |
+| `[ ]` | nama berkas sungguhan `log[1].csv` | terbaca, tapi karena `[1]` adalah **kelas karakter** yang kebetulan cocok | ikut ditolak: `log[12].csv` akan membaca `log1.csv`/`log2.csv`, bukan dirinya |
+| `disable_glob_matching` | `read_csv_auto('…', disable_glob_matching=true)` | `Binder Error: Invalid named parameter … for function read_csv_auto` | tidak ada jalan keluar dari sisi reader, jadi aturannya ada di kita |
+| Berkas hilang vs folder vs pattern tak cocok | `/nope/gone.csv`, sebuah folder, `''` | ketiganya membalas **pesan yang sama**: `No files found that match the pattern "<ditulis persis>"` | pre-flight M3 tidak boleh membaca error DuckDB; ia `os.Stat` di Go (dan `DESCRIBE` untuk nasib "skemanya berubah") |
+
+Pelajarannya bukan "DuckDB aneh" tapi **di mana letak keputusannya**: argumen reader adalah *pattern yang
+diselesaikan terhadap folder kerja*, bukan nama berkas. Karena itu aturan path disimpan di engine
+(`backend/engine/duckdb/filesource_path.go`) dan bukan di salah satu produk — web menyimpan path server, desktop
+menyimpan path relatif-bundle, keduanya sekarang mendapat kalimat error yang sama.
+
+Bentuk API-nya dua fungsi, dan arahnya penting:
+
+- `CanonicalFileSourcePath(path, anchorDir)` — **saat menyimpan**: berkas di dalam folder bundle jadi
+  `data/orders.csv` (slash, dinormalisasi, `./` dan `..` yang kembali ke dalam dihilangkan); berkas di luar
+  tetap absolut dan **tidak** ditulis ulang jadi `../...`, supaya definisinya jujur bilang "ini milik mesin ini".
+- `ResolveFileSourcePath(stored, anchorDir)` — **saat membuka**: absolut tinggal dibersihkan, relatif digabung ke
+  anchor lalu diuji tidak keluar (`ErrFileSourceOutsideAnchor`). `anchorDir` kosong berarti "tidak ada bundle"
+  (jalur web) → hanya absolut yang diterima, **tidak pernah** resolve terhadap CWD.
+
+Satu-satunya tempat ia bisa salah adalah asumsi lintas-OS, dan itu sengaja diukur dua arah: `C:\…`, `C:/…` dan
+`\\server\…` dikenali sebagai absolut di setiap platform (`filepath.IsAbs` hanya menjawab untuk platform tempat
+binernya dikompilasi), sementara `data\orders.csv` di Unix memang jadi satu nama berkas yang tidak ada — nasib
+"path tidak ada, bisa ditunjuk ulang", bukan path yang dilempar ke `Dir`. **Yang belum terukur di mesin ini**:
+perilaku resolver pada bundle yang benar-benar ditulis di Windows (butuh mesin Windows, M0 pertanyaan 1–3) dan
+batas jumlah/ukuran berkas per bundle (M3, dari angka nyata).

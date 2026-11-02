@@ -138,9 +138,28 @@ ditarik kembali, dan rotasi jadi milik bersama.
 
 ### 5.5 Path file relatif
 Karena sumber file masuk v1, yang bersifat mesin-lokal bukan kredensial melainkan **path-nya**. Bentuk kanonik di
-bundle adalah path **relatif terhadap berkas `.muara`**; resolver Profil lokal menangani remap. Pre-flight wajib
-membedakan tiga nasib: path ada · path tidak ada (bisa ditunjuk ulang) · file ada tapi **skemanya berubah**
-(kolom bertambah/tipe berubah). Batas jumlah & ukuran file per bundle ditetapkan di M3 dari angka nyata.
+bundle adalah path **relatif terhadap folder berkas `.muara`**, dengan `/` sebagai pemisah — bukan `\` — supaya
+bundle yang ditulis di Windows tetap terbaca di macOS dan sebaliknya. Aturannya tinggal di engine
+(`duckdb.CanonicalFileSourcePath` + `ResolveFileSourcePath`) karena dua produk harus sampai pada kesimpulan yang
+sama; resolver Profil lokal hanya menangani remap. Empat aturan di bawah berasal dari pengukuran pada
+DuckDB v1.1.3, bukan dari selera — tabel lengkapnya di `docs/engine-map.md` §22.
+
+| Aturan | Mengapa, dari pengukuran |
+|---|---|
+| Path relatif **tidak pernah** diteruskan ke DuckDB | DuckDB menyelesaikannya terhadap folder kerja proses, dan itu terjadi **lagi setiap kali dibaca**: satu view yang sama mengembalikan 1 baris lalu 4 baris hanya karena CWD berpindah |
+| Path yang keluar dari folder bundle **ditolak** | DuckDB sendiri membaca `../orders.csv` tanpa masalah (terukur: 2 baris), jadi pembatasnya harus ada di resolver — bundle kiriman orang lain tidak boleh mengarahkan aplikasi ke sembarang berkas yang bisa dibaca di mesin ini |
+| `~` **ditolak**, tidak diekspansi | error-nya memuat literal `~/…`; tidak ada shell di antara definisi dan reader, jadi menyimpan `~` berarti menyimpan path yang tidak akan pernah terbuka |
+| `* ? [ ]` **ditolak** | ketiga reader memperlakukan argumennya sebagai **pattern**: `x*.csv` membaca dua berkas (3 baris) padahal definisinya menyebut satu berkas, dan `log[1].csv` hanya kebetulan cocok karena `[1]` kelas karakter. `disable_glob_matching` tidak dikenal oleh `read_csv_auto` di build ini, jadi tidak ada opsi untuk mematikannya |
+
+Pre-flight wajib membedakan tiga nasib: path ada · path tidak ada (bisa ditunjuk ulang) · file ada tapi **skemanya
+berubah** (kolom bertambah/tipe berubah). DuckDB tidak ikut membedakan: berkas hilang, path yang ternyata folder,
+dan pattern yang tidak cocok semuanya membalas `IO Error: No files found that match the pattern "<persis seperti
+ditulis>"` — maka pre-flight memeriksa di sisi Go (`os.Stat`, lalu `DESCRIBE` untuk nasib ketiga), bukan membaca
+error mesin. Nasib keempat ikut ditampilkan apa adanya: definisi yang menyimpan path **absolut** tetap jalan di
+mesin ini tapi tidak portabel, dan itu memang bentuk yang tersisa ketika user menunjuk ulang sumber ke luar folder
+bundle.
+
+Batas jumlah & ukuran file per bundle ditetapkan di M3 dari angka nyata.
 
 ### 5.6 Tanpa drag-and-drop untuk menyusun query
 Membangun query = tugas seleksi; klik/checkbox lebih cepat dan hambatan pemula itu konseptual, bukan mekanis.

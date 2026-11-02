@@ -345,8 +345,16 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       `.jsonl`) dan menolak sisanya dengan `ErrUnsupportedFileSource` — dibuktikan offline dengan bundel
       kosong-hanya-baca, dan `read_parquet` terbukti ada di biner karena berkas hilang membalas `IO Error`,
       bukan "extension tidak tersedia". Ditutup hari yang sama: tiga fixture ter-commit (csv/json/parquet) dibaca
-      `TestSpikeFileFixturesReadWithNoBundledConnector` dengan bundel kosong. Yang tersisa: aturan path relatif
-      §5.5, UI impor.
+      `TestSpikeFileFixturesReadWithNoBundledConnector` dengan bundel kosong. **Aturan path relatif §5.5 ikut
+      tertutup 2026-11-02** — diukur dulu (DuckDB v1.1.3: path relatif diselesaikan terhadap folder kerja *setiap
+      kali baca*, `../` terbaca, `~` tidak diekspansi, `* ? [ ]` diperlakukan sebagai pattern sampai tiga reader,
+      dan `disable_glob_matching` ditolak sebagai parameter), lalu aturannya dipasang di engine
+      (`duckdb.CanonicalFileSourcePath` + `ResolveFileSourcePath` + `ErrFileSourceGlobPattern` di
+      `FileSourceQuery`); tabel pengukurannya di `docs/engine-map.md` §22 dan keputusan produknya di BRD §5.5.
+      Dibuktikan dengan bundle yang benar-benar dipindah: `TestBundleRelativeSourceSurvivesTheFolderMoving`
+      (desktop) menyimpan `data/orders.csv`, membaca 6 baris di folder pertama, lalu membaca jumlah yang sama dari
+      temp root lain. Yang tersisa: **UI impor** (registrasi view per sumber file di produk, menampilkan tipe hasil
+      inferensi apa adanya) dan keputusan XLSX.
       **Keputusan XLSX tercatat**: extension vs parse Go-side vs
       "simpan sebagai CSV/Parquet" — tanpa jalur diam-diam.
 - [ ] **Transport ke sumber privat (BRD §5.7)** — bastion jadi **forwarder TCP lokal** dan dipakai oleh
@@ -445,6 +453,12 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
 - [ ] Format & manifest berversi, store dengan save atomik (tmp → rename), entity `View` kelas satu.
 - [ ] **Aturan path file** (lubang yang dibuka oleh keputusan #3): path relatif terhadap berkas `.muara`
       sebagai bentuk kanonik; resolver profile untuk remap lokal; ukuran/jumlah file dibatasi.
+      **Aturannya sudah ditulis dan ditegakkan sejak 2026-11-02** (`duckdb.CanonicalFileSourcePath` +
+      `ResolveFileSourcePath` + penolakan glob/tilde di `FileSourceQuery`; BRD §5.5, engine-map §22) — yang
+      tersisa di butir ini cuma dua: **panggil resolvernya** saat store `.muara` menyimpan dan membuka definisi,
+      dan **batas ukuran/jumlah file** yang masih harus diukur dari angka nyata. Exit "dua berkas di folder
+      berbeda di mesin yang sama tetap resolve" sudah terbukti di level engine
+      (`TestBundleRelativeSourceSurvivesTheFolderMoving`).
 - [ ] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
       KDF-nya kode baru; `cryptohelper` hari ini hanya AES-GCM dengan key dari env.
 

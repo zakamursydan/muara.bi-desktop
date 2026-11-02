@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,4 +85,117 @@ func TestSpikeFileFixturesReadWithNoBundledConnector(t *testing.T) {
 	if len(entries) != 0 {
 		t.Errorf("bundle dir gained %d entries while reading files", len(entries))
 	}
+}
+
+// BRD §5.5 promises that a bundle keeps working when it is carried to another
+// machine. The only part of a file source that cannot travel is its path, so
+// this is the acceptance test for that sentence: save what the picker gives,
+// move the whole folder, and the same stored string must read the same rows.
+//
+// It also locks the two halves of the rule that make it true — the bundle folder
+// is the anchor, and DuckDB is never handed the relative form, because a
+// relative literal is re-resolved against the working directory on every read.
+func TestBundleRelativeSourceSurvivesTheFolderMoving(t *testing.T) {
+	fixture, err := filepath.Abs(filepath.Join("tests", "fixtures", "spike.csv"))
+	if err != nil {
+		t.Fatalf("absolute fixture: %v", err)
+	}
+
+	open := func(anchor, stored string) int64 {
+		t.Helper()
+		path, err := duckdb.ResolveFileSourcePath(stored, anchor)
+		if err != nil {
+			t.Fatalf("resolve %q against %s: %v", stored, anchor, err)
+		}
+		engine, err := duckdb.NewEngine(duckdb.DefaultGuardrailConfig())
+		if err != nil {
+			t.Fatalf("new engine: %v", err)
+		}
+		defer engine.Close()
+		ctx := context.Background()
+		session, err := engine.NewSession(ctx)
+		if err != nil {
+			t.Fatalf("new session: %v", err)
+		}
+		defer session.Close()
+
+		if err := session.RegisterFileSource(ctx, "orders", path); err != nil {
+			t.Fatalf("register %s: %v", path, err)
+		}
+		res, err := session.Query(ctx, "SELECT count(*) AS n FROM orders", duckdb.QueryOptions{})
+		if err != nil {
+			t.Fatalf("query: %v", err)
+		}
+		return res.RowCount
+	}
+
+	place := func(dir string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, "data"), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "data", "orders.csv"), readFixture(t, fixture), 0o600); err != nil {
+			t.Fatalf("copy fixture into %s: %v", dir, err)
+		}
+	}
+
+	// A folder as it would be on the analyst's first machine.
+	first := filepath.Join(t.TempDir(), "sales")
+	place(first)
+
+	stored, err := duckdb.CanonicalFileSourcePath(filepath.Join(first, "data", "orders.csv"), first)
+	if err != nil {
+		t.Fatalf("canonicalise: %v", err)
+	}
+	if stored != "data/orders.csv" {
+		t.Fatalf("the bundle would store %q, want the bundle-relative data/orders.csv", stored)
+	}
+
+	want := open(first, stored)
+	if want == 0 {
+		t.Fatal("the source read zero rows on the first machine")
+	}
+
+	// The same definition, in a different folder under a different temp root.
+	second := filepath.Join(t.TempDir(), "carry", "sales")
+	place(second)
+	if got := open(second, stored); got != want {
+		t.Errorf("after moving the bundle: %d rows, want %d", got, want)
+	}
+
+	// A path that climbs out of the bundle folder is refused even when the file
+	// it points at really exists — DuckDB would happily read it, which is exactly
+	// why the rule lives in the resolver and not in the reader.
+	parent := filepath.Dir(first)
+	if err := os.WriteFile(filepath.Join(parent, "orders.csv"), readFixture(t, fixture), 0o600); err != nil {
+		t.Fatalf("write the sibling file: %v", err)
+	}
+	if _, err := duckdb.ResolveFileSourcePath("../orders.csv", first); !errors.Is(err, duckdb.ErrFileSourceOutsideAnchor) {
+		t.Errorf("an escaping path returned %v, want ErrFileSourceOutsideAnchor", err)
+	}
+	// The same file one folder up is reachable through a re-pointed absolute path
+	// (BRD §5.5: "path tidak ada, bisa ditunjuk ulang") — it just stops being
+	// portable, and the definition then says so.
+	if got := open(parent, "orders.csv"); got != want {
+		t.Errorf("re-pointed sibling: %d rows, want %d", got, want)
+	}
+	// And an absolute path survives canonicalisation unchanged: outside files are
+	// stored as they are, not rewritten into ../ hops that read something else
+	// on the next machine.
+	absolute, err := duckdb.CanonicalFileSourcePath(filepath.Join(parent, "orders.csv"), first)
+	if err != nil {
+		t.Fatalf("canonicalise an outside file: %v", err)
+	}
+	if absolute != filepath.ToSlash(filepath.Join(parent, "orders.csv")) {
+		t.Errorf("outside file stored as %q, want its own absolute path", absolute)
+	}
+}
+
+func readFixture(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
 }

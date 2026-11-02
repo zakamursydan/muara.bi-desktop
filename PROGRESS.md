@@ -564,6 +564,26 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   BRD §12.2 karena `--accentSoft` membacanya chip informasi; (c) **FR-11 (pre-flight bundle) dikeluarkan dari
   butir ini atas keputusan user** — ia butuh bentuk `.muara` dulu, dan itu M4. Bukti: `vite build` bersih dan
   kedua kalimat penanda + `source_cap` ikut terbawa di bundle, gerbang desktop `DESKTOP-DONE fail=0`.
+- **Aturan path sumber file ditetapkan (2026-11-02, BRD §5.5 tertutup; sisa butir "Sumber file v1" tinggal UI
+  impor):** butir ini tadinya cuma satu kalimat di BRD — "bentuk kanonik = relatif terhadap berkas `.muara`" — dan
+  tidak ada satu pun angka yang mendukungnya. Yang diukur lebih dulu adalah **apa yang dilakukan DuckDB pada sebuah
+  string path** (v1.1.3, tabel lengkap di engine-map §22): path relatif diselesaikan terhadap folder kerja proses
+  **lagi setiap pembacaan** (satu view berubah jawabannya dari 1 baris jadi 4 hanya karena `chdir`), `../` dibaca
+  tanpa keluhan, `~` tidak diekspansi (error memuat literalnya), dan `* ? [ ]` diperlakukan sebagai **pattern** oleh
+  ketiga reader — `x*.csv` membaca dua berkas sekaligus (3 baris dari definisi yang menyebut satu berkas), sedangkan
+  `log[1].csv` hanya kebetulan cocok karena `[1]` adalah kelas karakter. `disable_glob_matching` ditolak sebagai
+  parameter, jadi tidak ada jalan keluar dari sisi reader.
+  Akibat pengukurannya, empat aturan dipasang **di engine** (`duckdb/filesource_path.go` + `FileSourceQuery`) karena
+  dua produk harus sampai pada kesimpulan yang sama: bentuk kanonik relatif dengan `/` dan dinormalisasi, path keluar
+  folder bundle ditolak (`ErrFileSourceOutsideAnchor` — bukan kemampuan DuckDB, jadi ditegakkan di Go), `~` ditolak,
+  glob ditolak (`ErrFileSourceGlobPattern`). Berkas di luar folder bundle **tidak** ditulis ulang jadi `../…` tapi
+  ditinggal absolut, supaya definisinya jujur bilang "ini milik mesin ini" — itulah nasib "bisa ditunjuk ulang"
+  di §5.5. Satu temuan ikut mengubah rencana M3: berkas hilang, path yang ternyata folder, dan pattern tak cocok
+  membalas **pesan yang sama**, jadi pre-flight tidak boleh membaca error DuckDB — ia `os.Stat` + `DESCRIBE` di Go.
+  Bukti: tes baru di engine (aturan, jalan di `CGO_ENABLED=1` **dan** `=0`) plus empat tes terukur pada reader
+  sungguhan, dan di repo ini `TestBundleRelativeSourceSurvivesTheFolderMoving` — menyimpan `data/orders.csv`,
+  membaca 6 baris di folder pertama, lalu membaca **jumlah yang sama** dari temp root lain; penolakan `../orders.csv`
+  diuji terhadap berkas yang memang ada, supaya penolakannya jelas aturan kita dan bukan kegagalan baca.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -718,9 +738,14 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    lain, probe `-file`, dan tiga fixture ter-commit (`spike.csv`/`spike.json`/`spike.parquet`) yang dibaca
    `TestSpikeFileFixturesReadWithNoBundledConnector` di `go test ./...` — jadi runner Windows/Linux ikut
    membuktikan jalur file tanpa perlu bundel. Yang masih terbuka, urut dari yang paling murah:
-   (a) **aturan path relatif di `.muara`** — view hasil `RegisterFileSource` menyimpan path absolut di dalam
-     definisinya, sehingga bundle yang dipindah ke mesin lain menunjuk berkas yang tidak ada; ini butir §5.5
-     BRD yang belum ditulis sama sekali, dan ia **harus** diputuskan sebelum fitur impor diumumkan;
+   (a) **aturan path relatif di `.muara`** — **selesai 2026-11-02**. Yang dulu masih satu kalimat di BRD sekarang
+     empat aturan di engine (`duckdb/filesource_path.go` + `FileSourceQuery`), masing-masing lahir dari mengukur
+     apa yang DuckDB v1.1.3 lakukan pada string path: relatif diselesaikan terhadap folder kerja **setiap kali
+     dibaca**, `../` terbaca, `~` tidak diekspansi, `* ? [ ]` diperlakukan pattern oleh ketiga reader. Bentuk
+     kanonik = relatif terhadap folder berkas `.muara` dengan pemisah `/`; keluar folder = ditolak; berkas di luar
+     = ditinggal absolut supaya definisinya jujur "milik mesin ini". Detail di BRD §5.5 dan engine-map §22, bukti
+     di `TestBundleRelativeSourceSurvivesTheFolderMoving`. Yang masih teori tinggal **batas jumlah/ukuran berkas
+     per bundle**, dihitung dari angka nyata di M3;
    (b) **UI impor + registrasi view per sumber file** di produk (bukan spike) — termasuk menampilkan tipe hasil
      inferensi apa adanya;
    (c) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
@@ -781,6 +806,14 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   verifikasi yang butuh Redis sungguhan (cache, semaphore concurrency) menunggu user membereskan disk/container.
   Ini juga jalur kegagalan baru untuk diperhatikan di produk: API yang sedang berjalan tetap bisa membaca cache
   lama sementara **setiap** penulisan hasil gagal.
+- **Sample Postgres (5435) dicoba ulang 2026-11-02 dan masih tidak bisa dipakai — tapi kini satu lapis lebih dalam.**
+  Port-nya **open** lagi (kemarin FATAL), namun `docker exec muara_sample_postgres psql …` membalas
+  `Error response from daemon: open /var/lib/docker/overlay2/a27b01…/lower: input/output error`: lapisan
+  filesystem container itu sendiri tidak terbaca, jadi kegagalan berpindah dari Postgres ke Docker. Satu penyebab
+  yang sama dengan butir MISCONF di atas — disk host tinggal **1,4 GiB dari 228 GB** — dan itu semua aksi milik
+  user (bersihkan image/volume, restart stack); tidak ada yang boleh saya sentuh di sini. Semua butir yang
+  butuh server (cached_schema terkualifikasi + empat pembacanya, `postgres_scanner` lewat jaringan nyata, bukti
+  HTTP `ssl_mode`/`root_cert`, dan bukti Redis flag pemotongan) menunggu infra ini sehat.
 - Perintah build yang benar, dan urutannya wajib (dist di-gitignore, `go:embed` membutuhkannya lebih dulu):
 
   ```sh
