@@ -381,6 +381,32 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      sumber" bukan sekadar belum dikerjakan — ia menuntut pilihan yang punya konsekuensi janji produk: parser
      Go-side (tetap offline, biaya pengembangan) vs extension `excel` (melanggar claims "sumber file tidak
      butuh bundel") vs "minta user simpan sebagai CSV/Parquet" (murah, tapi memindahkan kerja ke user).
+- **CA privat untuk Postgres selesai di web (2026-11-02, M2 / BRD §10 butir 8):** `ConnectionConfig.RootCert`
+  (`root_cert`) ikut tersimpan di payload terenkripsi JSON, jadi **tidak ada migrasi DB** — dan satu perakit DSN
+  (`service.postgresDSN`) berarti field itu otomatis terpakai di dua jalur: `SyncSchema` (pgx) dan ATTACH DuckDB.
+  Dua hal di dalamnya diukur, bukan ditebak:
+  1. **Kata kuncinya `sslrootcert`, bukan `rootcert`.** BRD dan catatan lama menulis "rootcert" — nama yang
+     ternyata ditolak: probe `ATTACH` dengan DSN `host=127.0.0.1 port=1 ... sslmode=require rootcert=/tmp/ca.pem`
+     membalas `invalid connection option "rootcert"`, **pesan yang sama** dengan opsi karangan sendiri
+     (`boguscert=`), sedangkan `sslrootcert=` lolos parsing dan berhenti di "server tidak menerima koneksi".
+     Karena libpq memvalidasi nama parameter sebelum menghubungkan apa pun, probe ini tidak butuh server TLS —
+     dan bentuk tesnya ikut jadi pola: bandingkan kata kunci yang ditolak dengan kata kunci rekaan.
+     Tes kedua membuktikan CA-nya benar-benar *dibuka*: `pgx.ParseConfig` gagal saat path menunjuk berkas yang
+     tidak ada. Tanpa tes itu, "parameternya diterima" bisa berarti "diabaikan".
+  2. **CA hanya diterima bersama `verify-ca`/`verify-full`.** `require` menegosiasi TLS tetapi menerima
+     sertifikat apa pun, jadi menyimpan CA di samping `require` menghasilkan profil yang **terlihat** terverifikasi
+     padahal tidak ada pemeriksaan — cacat kelas sama dengan `verify` yang sudah ditutup 2026-10-31. Ditambah
+     aturan path **absolut** (path relatif resolved terhadap CWD proses server → dua environment memuat CA
+     berbeda dari satu profil) dan penolakan teks PEM (orang menempel isi sertifikat, padahal libpq butuh nama
+     berkas). Validation di `UpsertEnvironment` → 400 sebelum enkripsi, persis pola §3 yang lalu.
+     Lima tes baru di `session_preparer_test.go`, termasuk satu CA self-signed yang benar-benar dibuat
+     (`crypto/x509`) supaya `TLSConfig.RootCAs` bisa dipakai sebagai bukti, dan satu tes injeksi: password berisi
+     `sslrootcert=/etc/hosts` tidak boleh menambah parameter (pgx akan error kalau mencoba membacanya).
+     Gerbang empat-mode hijau; `gofmt -l` bersih.
+  Belum: CA untuk MySQL dan MongoDB, path relatif CA saat bundle pindah mesin (M3), UI form web (hari ini
+  `root_cert` hanya bisa lewat API), dan **satu cacat yang muncul sambil membaca builder MySQL**:
+  `attachConnection` merakit `%s:%s@tcp(%s:%d)/%s` tanpa quoting, sehingga password berisi `@` atau `/` sudah
+  merusak DSN sebelum TLS dibicarakan — kasus yang sama persis dengan bug `sslmode` ganda yang baru ditutup.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -444,7 +470,8 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     service → status HTTP itu wajib, dan (4) UI tidak cukup jadi bukti — form web sudah membatasi lewat
     `<Select>`, hanya API-nya yang terbuka.
   - Belum ada tempat untuk CA privat (`rootcert`); default `sslmode=disable` salah untuk DB internal
-    self-signed. Masuk FR-1 + blocker §10 butir 8.
+    self-signed. **Sisi Postgres ditutup 2026-11-02** (`root_cert` dirakit sebagai `sslrootcert`; lihat blok CA
+    di §3). Masih terbuka: MySQL/Mongo, UI form, dan path relatif CA untuk bundle → FR-1 + butir 8 §10 BRD.
   - **Kontrak pemotongan (M1.4, diverifikasi 2026-10-31):** engine tidak menebak "halaman penuh = terpotong".
     Statement dijalankan dengan `LIMIT cap+1`; kalau baris ke-(cap+1) benar-benar ada, hasilnya ditandai
     `truncated_by=row_limit` dan baris penanda itu dibuang. 12 baris dengan cap 12 → **tidak** ditandai
@@ -501,9 +528,16 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    `DUCKDB_EXTENSION_DIRECTORY` ke sana.
    Kalau `go build` gagal dengan `pattern all:frontend/dist: no matching files found`, itu artinya langkah
    `npm run build` dilewat, bukan ada yang rusak di Go.
-2. Sisa pekerjaan SSL setelah bug DSN + validasi `ssl_mode` ditutup (masuk M2, jangan tertukar dengan yang
-   sudah selesai): `rootcert`/CA privat (BRD §10 butir 8) — perakit DSN sudah satu tempat dan sudah
-   memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
+2. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
+   di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
+   parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
+   (a) **UI** — web hanya menerima `root_cert` lewat API; form koneksi belum punya kolomnya, dan sesuai cara
+   kerja yang disepakati: **wireframe/mockup dulu sebelum koding UI**, bukan langsung input;
+   (b) **MySQL** — `ssl_ca` di DSN driver, dan sebelum TLS dibahas: builder MySQL hari ini merakit
+   `%s:%s@tcp(%s:%d)/%s` **tanpa quoting**, jadi password berisi `@`/`/` sudah merusak DSN (kasus identik dengan
+   bug `sslmode` ganda 2026-10-31);
+   (c) **MongoDB** — `tlsCAFile` di URI;
+   (d) **path relatif CA** ikut §5.5, baru relevan ketika `.muara` jadi storage di M3.
 3. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
    `Session.RegisterFileSource` (CSV/TSV/Parquet/JSON lewat reader core, tanpa bundel), ditolak rapi untuk tipe
    lain, probe `-file`, dan tiga fixture ter-commit (`spike.csv`/`spike.json`/`spike.parquet`) yang dibaca

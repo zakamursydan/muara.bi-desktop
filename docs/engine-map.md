@@ -471,6 +471,30 @@ dicatat terpisah — jangan tertukar dengan §12, yang mengurus extension:
 - **Sisa yang belum terbukti:** aturan **path relatif** di `.muara` (temp view saat ini menyimpan path absolut,
   jadi bundle yang dipindah mesin lain menunjuk berkas yang tidak ada) dan UI impornya.
 
+## 16. Kata kunci conninfo yang benar-benar diterima `postgres_scanner` (2026-11-02)
+
+`AttachPostgres` menyerahkan string conninfo ke libpq yang dibundel di dalam scanner, jadi nama parameter bukan
+sesuai selera produk — dan ini bisa diukur **tanpa server TLS**, karena libpq memvalidasi nama opsi *sebelum*
+berusaha connect. Probe (spike, `host=127.0.0.1 port=1`, koneksi pasti gagal):
+
+| conninfo | hasil | arti |
+| --- | --- | --- |
+| `sslrootcert=/tmp/probe-ca.pem` | `Is the server running on that host and accepting TCP/IP connections?` | dikenal → parsing selesai, gagal di TCP |
+| `rootcert=/tmp/probe-ca.pem` | `invalid connection option "rootcert"` | **tidak dikenal** |
+| `boguscert=/tmp/probe-ca.pem` | `invalid connection option "boguscert"` | pembanding: pesan yang sama = opsi karangan |
+
+Dua pelajaran yang lebih luas dari satu tabel:
+1. **Bandingkan kata kunci yang diuji dengan kata kunci rekaan.** Tanpa baris ketiga, "tidak ada error" bisa
+   berarti "opsinya diabaikan" — dan kegagalan senyap itulah yang ingin dihindari untuk CA.
+2. **Buktikan berkasnya benar-benar dibuka, bukan cuma diterima.** Di sisi pgx (jalur `SyncSchema` web), tes
+   menunjuk CA ke berkas yang tidak ada dan menuntut `pgx.ParseConfig` **gagal**; plus satu CA self-signed yang
+   benar-benar dibuat di tes (`crypto/x509`) supaya `TLSConfig.RootCAs` bisa diperiksa. Nama field produk tetap
+   `root_cert` (jelas untuk user), yang dikirim ke driver adalah `sslrootcert`.
+
+Belum terukur dan butuh sumber Postgres **bersertifikat TLS**: apakah scanner memuat CA itu sampai
+verifikasi berhasil/gagal (`sslmode=verify-ca` sungguhan). Sample postgres di mesin ini sedang rusak dan
+infrastruktur milik user, jadi pembuktiannya ditunda — yang sudah terbukti adalah string-nya diterima.
+
 
 
 

@@ -319,9 +319,19 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       yang kurang memang hanya gerbang API-nya. **Pelajaran untuk desktop:** validasi harus di titik tulis, dan
       handler wajib memetakan error validasi ke 400 — di web `Create`/`UpsertEnvironment`/`SyncSchema` tadinya
       memaksa semua error jadi 500, jadi pesan validasi tidak pernah sampai ke pemanggil.
-- [ ] **`rootcert` / CA privat** masuk spesifikasi attach + path relatif (§5.5). Bug `sslmode` ganda dan validasi
-      `ssl_mode` sudah ditutup 2026-10-31, tetapi belum ada tempat untuk CA internal, dan default `disable` tetap
-      salah untuk DB self-signed di jaringan kantor → sisa pekerjaan ada di butir 8 §10 BRD.
+- [x] **CA privat masuk spesifikasi attach (2026-11-02, sisi Postgres).** `ConnectionConfig.RootCert`
+      (`root_cert`, di payload terenkripsi JSON → tanpa migrasi) dan `service.postgresDSN` merakitnya sebagai
+      **`sslrootcert`** — nama itu diukur, bukan diasumsikan: `rootcert=` ditolak libpq bawaan DuckDB sebagai
+      `invalid connection option` (pesan yang sama dengan opsi karangan sendiri), dan tes yang menunjuk CA ke
+      berkas hilang membuktikan parameternya benar-benar dibuka. Aturan validasi di titik tulis: wajib absolut
+      (path relatif resolved terhadap CWD proses, jadi dua environment bisa memuat CA berbeda dari satu profil),
+      bukan teks PEM, dan hanya bersama `verify-ca`/`verify-full` — `require` menegosiasi TLS tapi menerima
+      sertifikat apa pun, sehingga CA di sampingnya **terlihat** terverifikasi padahal tidak ada pemeriksaan.
+      Default `sslmode=disable` tetap tidak diubah: itu keputusan per koneksi, bukan lagi cacat perakit DSN.
+- [ ] **Sisa CA privat (BRD §10 butir 8):** CA untuk MySQL (`ssl_ca` di DSN driver — dan builder MySQL hari ini
+      masih merakit `user:pass@tcp(host:port)/db` tanpa quoting apa pun, jadi password berisi `@` sudah rusak
+      sebelum TLS dibahas) dan MongoDB (`tlsCAFile` di URI); **path relatif CA ikut §5.5** begitu bundle `.muara`
+      jadi storage (M3); dan **UI**: web baru menerima `root_cert` lewat API, form-nya belum ada kolomnya.
 
 **Exit:** tree menampilkan kolom Mongo dan Postgres berdampingan; satu query lintas dua alias jalan;
 pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang bastion/VPN terbukti jalan pada
