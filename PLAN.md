@@ -292,9 +292,28 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
 
 
 
-- [ ] `SyncSchema` lintas driver (`connection_service.go:321,367` saat ini hanya Postgres dan diam).
+- [x] `SyncSchema` lintas driver — selesai 2026-11-02 (web `connection_service.go`, sebelumnya hanya Postgres
+      dan **diam**: sync MySQL/SQLite/MongoDB membalas sukses tanpa pernah menulis `cached_schema`, jadi tree
+      kosong tanpa satu pun pesan). Yang dibuka lebih dulu adalah pengukuran, bukan peraturan:
+      `litesrc.information_schema.columns` membalas `Catalog Error: Table with name columns does not exist!`
+      untuk `sqlite_scanner`, sedangkan `duckdb_columns()` melihat catalog hasil ATTACH seperti biasa — maka
+      fungsi katalog DuckDB-lah jalurnya, bukan information_schema sumber
+      (`Session.DescribeSource` + `duckdb/catalog.go`, detail di `docs/engine-map.md` §20). Web: Postgres
+      sengaja **tetap di pgx** karena sample Postgres mati di sisinya (`pg_filenode.map: I/O error`) sehingga
+      pemindahan jalur tidak bisa diukur, MySQL + SQLite lewat engine (build web tidak punya Go driver untuk
+      keduanya), MongoDB dan driver tak dikenal **menolak dengan alasan** — kolom collection hanya bisa diinferensi
+      dengan membaca dokumen, dan aturan metadata-only melarang memindahkan data ke cache. Dua bug ikut tertutup di
+      jalur error: `AppError.Error()` menempelkan cause mentah (bocor `passwd=…` di log) dan discovery nol tabel
+      pernah menimpa cache dengan `{}`. Bentuk `cached_schema` tidak diubah: empat pembacanya masih parse
+      `{tabel: [{name,type}]}`.
 - [ ] Skema terkualifikasi penuh: `alias.schema.tabel`, PK/FK, nullability, komentar tabel/kolom,
-      jumlah baris — mengganti `map[string][]ColumnDef` (`:344-348`). Ini prasyarat FR-2, FR-5, FR-10.
+      jumlah baris — mengganti peta `{tabel: [{name,type}]}` (`cachedColumn` di web, dulu
+      `map[string][]ColumnDef`). Bahan ukurnya sudah ada sejak 2026-11-02: `duckdb_columns()` membawa
+      `is_nullable`+`data_type`, `duckdb_tables()` membawa `has_primary_key`/`estimated_size`/`sql`,
+      `duckdb_constraints()` membawa `constraint_type`/`constraint_column_names`/`referenced_table` — tinggal
+      diperluas ke `CatalogTable` lalu bentuk cache dan empat pembacanya diubah sekaligus. Dua hal masih butuh
+      sumber hidup: spelling tipe Postgres dari `postgres_scanner` (vs pgx) dan MySQL nyata.
+      Ini prasyarat FR-2, FR-5, FR-10.
 - [ ] Penanda pemotongan **sampai ke UI**: sisinya engine sudah selesai di M1.4 (`MongoMount.Truncated` →
       `QueryResult.TruncatedBy = source_cap`), yang tersisa adalah menampilkan `truncated`/`truncated_by`/
       `capped_sources` di result grid (FR-3) dan di pre-flight bundle (FR-11).

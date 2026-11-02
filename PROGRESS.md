@@ -496,6 +496,39 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     sebagai batasan yang harus disetel manual, bukan sebagai fakta.
   - Gerbang empat-mode hijau (engine + web, `CGO_ENABLED=1/0`), `gofmt -l` bersih, `go test ./...` desktop
     hijau. Detail pengukuran di docs/engine-map.md §19.
+- **`SyncSchema` lintas driver selesai di web — dan jalurnya ditentukan oleh pengukuran (2026-11-02,
+  M2 / penutup audit BRD §9.2):** `cached_schema` dulu hanya diisi untuk Postgres; sisanya **membalas sukses
+  tanpa menulis apa pun**, jadi tree skema dan prompt AI kehilangan sumber yang sebenarnya bisa diquery.
+  - **Angka yang membuka jalurnya (DuckDB 1.1.3 + bundel aplikasi, fixture `tests/fixtures/spike.sqlite`):**
+    `litesrc.information_schema.columns` → `Catalog Error: Table with name columns does not exist!`
+    (`sqlite_scanner` tidak memajang information_schema di catalog hasil ATTACH), sedangkan
+    `duckdb_columns() WHERE database_name='litesrc'` → 3 baris `id BIGINT`, `channel VARCHAR`, `total DOUBLE`
+    dengan urutan `column_index` = urutan deklarasi. `duckdb_tables()` dan `duckdb_constraints()` mengembalikan
+    catalog yang sama, lengkap dengan `has_primary_key`, `sql`, `constraint_type`, `referenced_table` — itu
+    bahan butir terkualifikasi berikutnya, belum dipakai.
+  - **Permukaan engine baru:** `Session.DescribeSource(ctx, alias) ([]CatalogTable, error)` — alias di-bind
+    sebagai parameter sesudah `sqlident.IsPlain`, `internal = false`, cap 5000 dibaca sebagai 5001 **sentinel**
+    (preseden M1.4), denylist schema sistem dieksekusi di Go supaya teruji tanpa sumber. Detail di
+    `docs/engine-map.md` §20.
+  - **Kenapa Postgres tidak ikut dipindah:** sample Postgres mesin ini mati di sisinya
+    (`FATAL: could not open file "global/pg_filenode.map": I/O error`), jadi tidak ada cara membandingkan
+    spelling tipe dari `postgres_scanner` dengan `information_schema` sumber sebelum mengubah jalur yang
+    **sudah bekerja**. Web sengaja menyimpan dua jalur: pgx untuk Postgres, engine untuk MySQL/SQLite (build
+    web tidak punya Go driver untuk keduanya — hanya pgx di `go.mod`), dan PostgreSQL menyusil setelah infra
+    user hidup lagi. Ini bukan konsistensi yang dikejar, tapi urutan yang bisa diukur.
+  - **MongoDB sekarang punya jawaban, bukan diam:** kolom collection hanya bisa diinferensi dengan membaca
+    dokumen, dan `cached_schema` dihidangkan ke prompt AI → aturan metadata-only melarangnya. Query Mongo tetap
+    jalan karena mount terjadi per eksekusi di bawah row cap. Driver tak dikenal juga error, bukan `return nil`.
+  - **Dua bug yang ikut tertutup (catatan untuk cara desktop menulis API):** (1) `AppError.Error()` menempelkan
+    cause, jadi merahasiakan pesan saja tidak cukup — cause-nya ikut diredaksi, kalau tidak `passwd=…` muncul di
+    log; (2) discovery nol tabel pernah menimpa cache dengan `{}`, sekarang itu kegagalan. Bentuk cache tidak
+    diubah karena empat pembacanya masih parse `{tabel: [{name,type}]}`.
+  - **Bukti:** `TestSyncSchemaStoresTheScannerCatalog` (engine + bundel + fixture sungguhan, dibaca balik dengan
+    bentuk yang dipakai konsumen), `TestDescribeSourceOnAttachedSQLite` (spelling tipe scanner dikunci),
+    `TestDescribeSourceReadsAMountedView` (katalog valid tanpa server), 4 `TestGroupCatalog*`, 5 tes kebijakan
+    service (penolakan per-driver, butuh engine, cache kosong, kolom tersimpan, redaksi). Gerbang empat-mode
+    `GATE-DONE fail=0` + `gofmt` bersih. Yang belum terukur: MySQL nyata (tidak ada server) dan Postgres via
+    scanner (container rusak).
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
 
 
@@ -528,6 +561,8 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     `engine/go.mod`+`go.sum` sebelum `go mod download`.
   - BRD §9.1 (Mongo tidak ter-attach di jalur query) **sudah selesai**: `session_preparer.go:208`.
   - BRD §9.2 benar: `connection_service.go:321` hanya Postgres, `:367` `return nil` untuk driver lain.
+    **Ditutup 2026-11-02** — MySQL & SQLite dibaca lewat katalog DuckDB, MongoDB dan driver tak dikenal menolak
+    dengan alasan (blok `SyncSchema` di §3). §9.3 masih terbuka: bentuk cache-nya belum berubah.
   - BRD §9.3 benar dan lebih parah: `ColumnDef` hanya `{Name, Type}` (`connection_service.go:344`).
   - BRD §9.4 benar: `DefaultMongoDocLimit = 10000` (`nosql_adapter.go:18`, dipakai di `:201`).
   - Temuan baru yang tidak ada di BRD: `session_fallback.go` (jalur `!cgo`) mengembalikan `nil` untuk
@@ -657,7 +692,22 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      inferensi apa adanya;
    (c) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
    (Fixture parquet **tidak lagi** termasuk daftar ini — tertutup 2026-11-02, lihat §3.)
-4. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
+4. **Katalog sumber — sisa setelah `SyncSchema` lintas driver (2026-11-02).** Yang selesai: web tidak lagi diam
+   untuk MySQL/SQLite/MongoDB, dan engine punya satu pintu baca metadata
+   (`Session.DescribeSource`, aturan terukur di engine-map §20). Yang tinggal, urut dari yang paling murah:
+   (a) **menyatukan Postgres ke katalog DuckDB** — sekarang web masih dua jalur (pgx untuk Postgres, engine untuk
+     MySQL/SQLite). Menyateliknya butuh pembanding spelling tipe `postgres_scanner` vs `information_schema`
+     sumber, dan itu butuh sample Postgres yang hidup; mesin ini sedang `pg_filenode.map: I/O error`, jadi
+     restart infra adalah aksi milik user, bukan langkah yang boleh diambil sendiri;
+   (b) **`cached_schema` terkualifikasi** (butir PLAN di atas): perluas `CatalogTable` dengan
+     `is_nullable`/PK/FK/komentar/`estimated_size` — bahan sudah terbukti ada — lalu ubah bentuk cache dan
+     **empat** pembacanya sekaligus (`ai_service.go`, `stores/schema-store.ts`, `hooks/use-schema-tree.ts`,
+     `lib/monaco-completion.ts`);
+   (c) **MySQL sungguhan** untuk membuktikan katalog hasil ATTACH (yang terukur sekarang jalur SQLite + fake
+     service);
+   (d) **sisi desktop**: tree skema (FR-2) nanti memanggil `DescribeSource` yang sama, dan aturannya **tidak**
+     boleh disalin ke repo ini — satu implementasi di engine, dua konsumen.
+5. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
    *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*

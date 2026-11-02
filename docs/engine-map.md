@@ -185,6 +185,11 @@ implementasi desktop tidak perlu mengulang policing-nya:
   `duckdb.FileSourceQuery` (§15). Nama view divalidasi `sqlident.IsPlain` dan path masuk sebagai string literal
   hasil `quoteLiteral`, jadi desktop tidak perlu (dan tidak boleh) merakit SQL-nya sendiri. Ini jalur sumber
   file; `Attach*` tetap untuk database.
+- `Session.DescribeSource(ctx, alias string) ([]CatalogTable, error)` (2026-11-02) — membaca **metadata** tabel
+  dan kolom dari catalog yang sudah di-ATTACH, lewat fungsi katalog DuckDB sendiri. Ini satu-satunya jalur yang
+  berlaku untuk ketiga scanner SQL (alasan terukur di §20), jadi desktop tidak perlu — dan tidak boleh — menulis
+  query `information_schema` sendiri. Tidak ada baris data yang dibaca; hasil kosong berarti "tidak ada yang
+  terlihat", bukan error, sehingga keputusan "cache tidak boleh tertimpa skema kosong" ada di pemanggil.
 
 ## 8. Spike M0 (2026-11-01) — engine hidup di modul kedua, dan bundel extension ternyata tidak offline
 
@@ -622,3 +627,43 @@ harus bisa ditimpa user; jumlah thread tidak.
 
 
 
+
+## 20. Katalog sumber: `duckdb_columns()` adalah satu-satunya jalur lintas scanner (2026-11-02)
+
+Butir M2 web ("`SyncSchema` lintas driver") memaksa satu pertanyaan dijawab dengan pengukuran, bukan
+asumsi: *kalau engine sudah bisa men-ATTACH sebuah sumber, bagaimana cara membaca daftar tabel & kolomnya?*
+Probe dilakukan pada DuckDB 1.1.3 + bundel extension aplikasi (`/Applications/muara-bi.app/Contents/Resources/
+duckdb/extensions`), sumbernya fixture SQLite repo ini (`tests/fixtures/spike.sqlite`).
+
+| Percobaan (sesudah `ATTACH … AS litesrc (TYPE SQLITE, READ_ONLY)`) | Hasil terukur |
+| --- | --- |
+| `litesrc.information_schema.columns` | **Gagal**: `Catalog Error: Table with name columns does not exist!` — `sqlite_scanner` tidak memajang information_schema di catalog yang di-attach |
+| `litesrc.duckdb_columns()` | bukan fungsi di sana — `duckdb_columns()` adalah fungsi **DuckDB**, dipanggil tanpa prefix |
+| `SELECT … FROM duckdb_columns() WHERE database_name='litesrc'` | **Berhasil**, 3 baris: `id BIGINT`, `channel VARCHAR`, `total DOUBLE` (urutan `column_index` = urutan deklarasi) |
+| `duckdb_tables() WHERE database_name='litesrc'` | Berhasil; membawa `has_primary_key`, `estimated_size`, `column_count`, dan `sql` (DDL penuh) |
+| `duckdb_constraints() WHERE database_name='litesrc'` | Berhasil; `constraint_type` = `PRIMARY KEY`/`NOT NULL`, `constraint_column_names`, `referenced_table` |
+| `duckdb_schemas()` | Berhasil; schema fixture adalah `main` |
+
+Dua hal yang keluar dari angka di atas, dan keduanya ikut cara engine dipakai:
+
+1. **Tipe yang dilaporkan adalah tipe scanner, bukan tipe deklarasi sumber.** Fixture mendeklarasikan `INTEGER`
+   dan scanner membalas `BIGINT`. Untuk cache yang dipakai menulis SQL (tree, autocomplete, prompt AI) itu yang
+   benar: yang dijanjikan adalah tipe yang dilihat planner, bukan tipe yang ditulis di sumbernya.
+2. **`is_nullable` BOOLEAN dan `data_type` VARCHAR ada di `duckdb_columns()`**, jadi Butir M2 berikutnya
+   (skema terkualifikasi + PK/FK + nullability + komentar + jumlah baris) tidak butuh connector baru — cukup
+   perluas `CatalogTable`, lalu ubah bentuk `cached_schema` dan empat pembaca-nya sekaligus.
+
+Yang **tidak** bisa diukur: sisi Postgres. Container sample mati di sisinya
+(`FATAL: could not open file "global/pg_filenode.map": I/O error`, VM Docker yang sama yang membuat
+`docker exec` ikut gagal), jadi belum ada pembanding spelling tipe Postgres dari `postgres_scanner` versus
+`information_schema` milik sumber. `cmd/spike` sudah membuktikan `pgsrc.information_schema.tables` berfungsi
+untuk Postgres, jadi kedua jalur ada — dan karena itu web sengaja **mempertahankan pgx untuk Postgres** dan
+baru memindahkannya ke katalog DuckDB setelah ada sample Postgres yang hidup. Restart infra itu milik user.
+
+Permukaannya (`backend/engine/duckdb/catalog.go`): `DescribeSource` mem-*bind* alias sebagai parameter
+(`database_name = ?`) setelah `sqlident.IsPlain`, menyaring `internal = false`, mengurutkan
+`schema_name, table_name, column_index`, dan membaca `MaxCatalogColumns+1 = 5001` baris sebagai **sentinel**
+(preseden M1.4: baris ekstra adalah bukti pemotongan). Source yang lebih lebar dari itu ditolak, tidak
+disimpan separuh dan tampak lengkap. Denylist schema sistem (`information_schema`, `pg_catalog`, `mysql`,
+`performance_schema`, `sys`) dijalankan di Go supaya teruji tanpa sumber nyata. Build tanpa CGO mengembalikan
+`ErrCGODisabled` seperti method `Session` yang lain.
