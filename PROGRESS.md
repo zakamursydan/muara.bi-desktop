@@ -98,8 +98,8 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   `View` kelas satu" selesai dengan ketiga exit criterion-nya terukur (detail di §3 dan PLAN M3). **Butir kedua M3
   ikut selesai 2026-11-02:** aplikasi bekerja pada **satu berkas terbuka** (`document.go` — satu sesi DuckDB per
   dokumen) dengan `Profile` per mesin di luar bundle (`internal/profile/`), dan bar dokumennya sudah tampil di
-  window (`frontend/src/App.jsx`); exit §5.1 terukur, dan yang tinggal di butir ini hanya **satu klik manusia pada
-  dialog berkas Wails** — Build `.app`-nya menunggu keputusan ruang disk.
+  window (`frontend/src/App.jsx`); exit §5.1 terukur, `.app` baru terpasang di `/Applications`, dan yang tinggal di
+  butir ini hanya **satu klik manusia pada dialog berkas Wails**.
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -684,10 +684,11 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     hitungan isi bundle, `profileError` bila profil mesin tak terpakai, panel **Sumber** "N ter-mount dari M"
     dengan alasan tiap `✗`, dan editor yang hanya menawarkan `SELECT * FROM <model pertama> LIMIT 20` kalau user
     belum mengetik. Dua tombol spike Attach keluar dari layar (fixture-nya tetap teruji dari Go). Bindings
-    di-generate ulang: 12 metode, 5 model. **Yang masih menunggu manusia:** satu klik pada dialog Wails — itu
-    butuh build `.app`, dan volume data mesin ini tinggal **2,0 GB / 228 GB (100%)** sementara link DuckDB pernah
-    terukur menaikkan puncak ±1,1 GiB di tengah build (§catatan 2026-11-01), jadi langkahnya menunggu keputusan
-    user soal ruang disk, bukan menunggu kode.
+    di-generate ulang: 12 metode, 5 model. **Build dan pemasangan `.app` selesai hari yang sama** (user
+    membersihkan ruang: 19 GiB bebas): `sh build/macos-app.sh` lolos cek `minos=14.0` + 3 extension, terpasang di
+    `/Applications/muara-bi.app` dengan tanda tangan ad-hoc. Yang tersisa benar-benar cuma **satu klik manusia
+    pada dialog Wails** — `OpenWithDialog` / `SaveAsWithDialog` belum pernah berjalan di jendela sungguhan, dan
+    tidak ada tes Go yang bisa memanggil dialog OS.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -826,9 +827,9 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      `Current`) bersama **satu sesi DuckDB per dokumen**, `Untitled.muara` ditulis ke disk dan tidak pernah
      ditimpa, dan `Profile` lokal (alias → host + *sumber* kredensial, bukan kredensialnya) hidup di
      `~/Library/Application Support/muara.bi/profile.json` tanpa pernah ikut bundle. Bar dokumen sudah tampil di
-     window dan dijaga `TestDocumentControlsAreInShippedBundle`. Satu-satunya yang tersisa: **satu klik nyata pada
-     dialog Wails** (`OpenWithDialog` / `SaveAsWithDialog`), yang butuh build `.app` — dan build itu menunggu
-     keputusan user karena ruang disk;
+     window dan dijaga `TestDocumentControlsAreInShippedBundle`. **`.app` baru sudah ter-build dan terpasang di
+     `/Applications` (2026-11-02, `minos=14.0` + 3 extension)** — satu-satunya yang tersisa: **satu klik nyata pada
+     dialog Wails** (`OpenWithDialog` / `SaveAsWithDialog`), yang tidak bisa dibuktikan dari tes Go;
    (b) **`secrets.enc`**: argon2id → AES-256-GCM, kode baru (`cryptohelper` web hanya AES-GCM dengan key dari
      env). Sampai blok itu ada, `Open` dengan sengaja menolak bundle yang memuat `secrets.enc`;
    (c) **tiga tingkat ikut-tidaknya definisi koneksi saat export** — bentuk tipenya sudah siap (tingkat 2

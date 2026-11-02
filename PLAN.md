@@ -531,17 +531,18 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       Bagian jendela dijaga `TestDocumentControlsAreInShippedBundle`: label kontrol dan JSON tag `duckdbVersion` /
       `profileError` / `semanticModels` wajib ada di bundle JS yang ter-embed — nama metode binding **tidak** bisa
       dipakai sebagai penanda karena generator menulis `$Call.ByID(<hash>)` dan minifikasi menghapus sisanya.
-      **Yang masih menunggu manusia:** satu klik nyata pada dialog Wails. Itu berarti build `.app` baru, dan volume
-      data mesin ini tinggal **2,0 GB dari 228 GB (100%)** sementara link DuckDB butuh ±1,1 GB transien — langkahnya
-      ditunda sampai user memutuskan soal ruang disk, bukan karena kodenya belum ada.
+      **Yang masih menunggu manusia:** satu klik nyata pada dialog Wails. Buildnya sudah selesai — user
+      membersihkan ruang (19 GiB bebas), `sh build/macos-app.sh` lolos `minos=14.0` + 3 extension, dan hasilnya
+      terpasang di `/Applications/muara-bi.app` (2026-11-02) — yang belum pernah terjadi hanyalah dialog OS itu
+      sendiri muncul di jendela sungguhan.
       Bahasanya sengaja mengikuti `docs/wireframe.html` (sumber hijau/merah + alasan di barisnya), tapi jendela ini
       **belum** separuh layar itu: S0 "terakhir dibuka" + Import bundle dengan laporan pre-flight masih M4, dan
       pohon View/Dashboard di S1 masih M5. Yang dibangun sekarang cuma barisan yang menjawab §5.1.
 - [ ] **Satu klik manusia pada dialog berkas** — `OpenWithDialog` / `SaveAsWithDialog` adalah satu-satunya jalur
-      tempat sebuah path masuk ke aplikasi, dan keduanya belum pernah berjalan di jendela sungguhan. Butuhnya cuma
-      build `.app` + dua klik (pilih berkas, pilih folder); gerbang otomatis sudah menjaga label kontrol ada di
-      bundle, tapi tidak ada tes Go yang bisa membuktikan dialog OS menampilkan `*.muara` dan mengembalikan
-      path yang benar.
+      tempat sebuah path masuk ke aplikasi, dan keduanya belum pernah berjalan di jendela sungguhan. `.app`-nya
+      sudah terpasang di `/Applications/muara-bi.app` (2026-11-02), jadi yang kurang cuma dua klik (pilih berkas,
+      pilih folder); gerbang otomatis sudah menjaga label kontrol ada di bundle, tapi tidak ada tes Go yang bisa
+      membuktikan dialog OS menampilkan `*.muara` dan mengembalikan path yang benar.
 - [ ] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
       KDF-nya kode baru; `cryptohelper` hari ini hanya AES-GCM dengan key dari env.
 
