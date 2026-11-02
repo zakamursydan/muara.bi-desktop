@@ -132,7 +132,7 @@ jobs:
           CGO_ENABLED: "1"
           DUCKDB_EXTENSION_DIRECTORY: ${{ matrix.bundle_dir }}
           MUARA_SPIKE_SQLITE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.sqlite
-          MUARA_SPIKE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.json
+          MUARA_SPIKE_FILE: ${{ github.workspace }}/muara.bi-desktop/tests/fixtures/spike.parquet
         run: |
           chmod -R a-w "${{ matrix.bundle_dir }}"
           go build -o bin/spike ./cmd/spike
@@ -140,6 +140,9 @@ jobs:
         # If DuckDB tried to fetch anything it would have to write into a
         # directory that refuses writes or into a HOME that stays empty. On
         # Linux the network is also pulled away underneath the process.
+        # The file this step reads is the parquet fixture: its reader is the one
+        # least obviously compiled into the binary, so a quiet download attempt
+        # would surface here as a refusal to write rather than as a success.
 
       - name: Run the spike tests
         working-directory: muara.bi-desktop

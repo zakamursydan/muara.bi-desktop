@@ -356,15 +356,27 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      Bukti paling penting justru dari berkas yang **tidak ada**: `read_parquet('/tmp/does-not-exist.parquet')`
      membalas `IO Error: No files found that match the pattern …`, bukan "extension tidak tersedia" — artinya
      reader Parquet memang ada di dalam biner, dan kegagalan berikutnya cuma urusan berkas.
-  4. **Yang belum:** fixture Parquet. Menulis satu berkas parquet butuh `COPY … TO`, dan guardrail engine
-     memang melarang statement itu (jalur desktop tidak boleh menulis sembarang file), jadi yang terbukti baru
-     "readernya ada", bukan "produk bisa baca parquet ekspor orang". Perlu sumber berkas parquet kecil yang
-     layak di-commit sebelum butir M2 itu bisa ditutup.
+  4. **Fixture Parquet menyusul di hari yang sama** — dan cara membuatnya layak dicatat. Berkas
+     `tests/fixtures/spike.parquet` (564 B) ditulis oleh sebuah generator sementara yang memanggil
+     `go-duckdb` **langsung**, bukan lewat `Session.Query`: guardrail engine melarang `COPY … TO`, dan itu
+     benar untuk produk (aplikasi desktop tidak boleh menulis sembarang berkas), jadi jalur pembuatan fixture
+     harus sengaja berada di luar jalur produk — generatornya sudah dihapus, tidak ikut ter-commit, dan
+     provenance-nya cuma ada di catatan ini plus pesan commit. Hasilnya: parquet terbaca 6 baris dengan
+     `id BIGINT`, `channel VARCHAR`, `total DOUBLE` dalam keadaan bundel kosong dan hanya-baca.
+     Bedanya juga kelihatan: pada CSV/JSON tipe itu **hasil inferensi**, pada parquet tipe **dibawa oleh
+     berkasnya** — jadi schema drift yang user lihat hanya mungkin dari file teks.
   5. `cmd/spike` dapat `-file` + `-view` (env `MUARA_SPIKE_FILE`, sama polanya dengan DSN dan fixture SQLite:
      path datang dari lingkungan, webview tidak pernah bisa menyodorkan path yang akan dibuka aplikasi).
      Di CI env-nya ditambahkan ke **dua langkah bukti yang sudah ada**, bukan bikin langkah baru, karena
-     langkah itu jalan di tiga OS dan prefiks `VAR=value cmd` hanya valid di shell POSIX.
-  6. **Keputusan XLSX-source tetap terbuka, tapi sekarang punya dasar:** engine menolak `.xlsx`, sementara
+     langkah itu jalan di tiga OS dan prefiks `VAR=value cmd` hanya valid di shell POSIX. Langkah pertama
+     memakai `spike.csv`, langkah hanya-baca memakai `spike.parquet` (reader yang paling tidak jelas sudah
+     terkompilasi — percobaan unduh di situ akan muncul sebagai penolakan menulis, bukan sebagai sukses).
+  6. `TestSpikeFileFixturesReadWithNoBundledConnector` (desktop) membaca **ketiga** fixture lewat
+     `RegisterFileSource` dengan `ExtensionDirectory` menunjuk folder kosong, lalu memastikan folder itu tetap
+     tidak berisi apa pun. Ini yang membuat pertanyaan Windows jadi bisa dijawab di runner: `go test ./...` sudah ada di
+     workflow, dan tes inilah yang membuktikan "berkas user terbaca di OS ini tanpa bundel", bukan hanya
+     pemetaan di engine. `CGO_ENABLED=1 go test ./...` hijau (desktop 1,5 dtk), `gofmt -l` bersih.
+  7. **Keputusan XLSX-source tetap terbuka, tapi sekarang punya dasar:** engine menolak `.xlsx`, sementara
      `engine/exporter/WriteXLSX` (excelize, pure Go) hanya melayani **ekspor**. Jadi "impor .xlsx sebagai
      sumber" bukan sekadar belum dikerjakan — ia menuntut pilihan yang punya konsekuensi janji produk: parser
      Go-side (tetap offline, biaya pengembangan) vs extension `excel` (melanggar claims "sumber file tidak
@@ -494,15 +506,16 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    memvalidasi mode, jadi yang kurang hanya field CA + alur "percayai sertifikat ini" (§5.7 aturan 3).
 3. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
    `Session.RegisterFileSource` (CSV/TSV/Parquet/JSON lewat reader core, tanpa bundel), ditolak rapi untuk tipe
-   lain, plus probe `-file` dan langkah CI. Yang masih terbuka, urut dari yang paling murah:
-   (a) **fixture Parquet** — reader-nya terbukti ada (error yang keluar adalah `IO Error: No files found`), tapi
-   belum ada berkas kecil yang layak di-commit untuk membuktikannya membaca; engine melarang `COPY … TO`, jadi
-   tidak bisa dibuat dari dalam produk;
-   (b) **aturan path relatif di `.muara`** — view hasil `RegisterFileSource` menyimpan path absolut di dalam
-     definisinya, sehingga bundle yang dipindah mesin lain akan menunjuk ke berkas yang tidak ada; ini butir
-     §5.5 BRD yang belum ditulis sama sekali;
-   (c) **UI impor + registrasi view per sumber file** di produk (bukan spike);
-   (d) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
+   lain, probe `-file`, dan tiga fixture ter-commit (`spike.csv`/`spike.json`/`spike.parquet`) yang dibaca
+   `TestSpikeFileFixturesReadWithNoBundledConnector` di `go test ./...` — jadi runner Windows/Linux ikut
+   membuktikan jalur file tanpa perlu bundel. Yang masih terbuka, urut dari yang paling murah:
+   (a) **aturan path relatif di `.muara`** — view hasil `RegisterFileSource` menyimpan path absolut di dalam
+     definisinya, sehingga bundle yang dipindah ke mesin lain menunjuk berkas yang tidak ada; ini butir §5.5
+     BRD yang belum ditulis sama sekali, dan ia **harus** diputuskan sebelum fitur impor diumumkan;
+   (b) **UI impor + registrasi view per sumber file** di produk (bukan spike) — termasuk menampilkan tipe hasil
+     inferensi apa adanya;
+   (c) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
+   (Fixture parquet **tidak lagi** termasuk daftar ini — tertutup 2026-11-02, lihat §3.)
 4. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.

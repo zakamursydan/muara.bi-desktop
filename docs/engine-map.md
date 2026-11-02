@@ -444,12 +444,19 @@ dicatat terpisah — jangan tertukar dengan §12, yang mengurus extension:
   keluar adalah `IO Error: No files found that match the pattern "/tmp/does-not-exist.parquet"` — bukan
   "extension tidak tersedia". Dengan bundel **kosong dan hanya-baca** plus `HOME` kosong, kegagalan itu hanya
   bisa berarti satu hal: namanya sudah dikenal DuckDB. Trik yang berlaku umum di spike: kalau sebuah fungsi
-  menolak karena *file*, ia sudah ter-resolve.
+  menolak karena *file*, ia sudah ter-resolve. Bukti ini kemudian diganti yang lebih kuat: `spike.parquet`
+  (564 B, ter-commit) terbaca 6 baris dalam keadaan yang sama.
+- **Cara fixture parquet dibuat, dan mengapa tidak lewat engine**: `COPY … TO` dilarang `ValidateQuery` dan
+  itu aturan yang benar untuk produk — aplikasi desktop tidak boleh menulis berkas sembarang. Fixtures
+  karena itu dihasilkan oleh generator sementara yang memakai `go-duckdb` langsung, di luar `Session.Query`,
+  lalu berkasnya saja yang di-commit dan generatornya dibuang. Aturan turunannya: alat pembuat fixture tidak
+  boleh jadi jalur produk, dan tidak boleh tinggal di repo.
 - **Inferensi tipe datang dari `DESCRIBE SELECT * FROM view`**, bukan dari engine sendiri: CSV/JSON fixture
   menghasilkan `id BIGINT`, `channel VARCHAR`, `total DOUBLE`. Kolom dan tipenya lewat `ColumnMeta` yang sama
   dengan hasil query biasa, jadi grid tidak perlu jalur khusus. `.tsv` numerik bisa muncul sebagai `BIGINT`
   sementara `.csv` dengan angka desimal menjadi `DOUBLE` — tipe kolom sumber file adalah apa yang DuckDB
-  simpulkan, dan itu harus ditampilkan apa adanya di UI, jangan digores "text" supaya seragam.
+  simpulkan, dan itu harus ditampilkan apa adanya di UI, jangan digores "text" supaya seragam. Beda penting:
+  pada **parquet tipenya dibawa berkas**, jadi schema drift yang bisa dilihat user hanya datang dari file teks.
 - **Yang ditolak, ditolak dengan nama:** `.txt`, `.xlsx`, `Makefile`, `.pqt`, path kosong mengembalikan
   `ErrUnsupportedFileSource` dengan pesan yang menyebutkan daftar yang didukung. Ini pilihan desain, bukan
   kelalaian: membiarkan `.xlsx` lolos berarti engine diam-diam mencoba extension `excel`, yang akan mengunduh
@@ -457,9 +464,12 @@ dicatat terpisah — jangan tertukar dengan §12, yang mengurus extension:
 - **Quote helper dipindah ke berkas tanpa tag build** (`duckdb/sqlquote.go`). Selama `quoteIdent`/`quoteLiteral`
   tinggal di `session_cgo.go`, paket `duckdb` pada `CGO_ENABLED=0` tidak bisa menguji logika path/nama, dan
   gerbang empat-mode ikut kehilangan coverage untuk bagian yang justru paling rawan injection.
-- **Sisa yang belum terbukti:** satu berkas `.parquet` nyata yang layak di-commit (tidak bisa dibuat dari
-  dalam engine karena `COPY … TO` dilarang guardrail), aturan **path relatif** di `.muara` (temp view saat ini
-  menyimpan path absolut), dan UI impornya.
+- **Dibaca di mana saja, tanpa bundel:** `TestSpikeFileFixturesReadWithNoBundledConnector` (repo desktop)
+  membuka ketiga fixture dengan `ExtensionDirectory` = folder kosong, menjalankan agregasi dan `DESCRIBE`, lalu
+  memastikan folder itu tetap kosong. Karena ia jalan di `go test ./...`, runner Windows dan Linux ikut
+  menjawab "berkas user terbaca di OS ini?" tanpa connector, tanpa server, tanpa jaringan.
+- **Sisa yang belum terbukti:** aturan **path relatif** di `.muara` (temp view saat ini menyimpan path absolut,
+  jadi bundle yang dipindah mesin lain menunjuk berkas yang tidak ada) dan UI impornya.
 
 
 

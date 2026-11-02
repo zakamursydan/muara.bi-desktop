@@ -289,7 +289,9 @@ Windows gagal, ini titik putar ke Tauri + sidecar Go atau macOS-only — diputus
       `Session.RegisterFileSource` memetakan ekstensi ke reader core (`.csv`/`.tsv`/`.parquet`/`.pq`/`.json`/
       `.jsonl`) dan menolak sisanya dengan `ErrUnsupportedFileSource` — dibuktikan offline dengan bundel
       kosong-hanya-baca, dan `read_parquet` terbukti ada di biner karena berkas hilang membalas `IO Error`,
-      bukan "extension tidak tersedia". Yang tersisa: fixture Parquet, aturan path relatif §5.5, UI impor.
+      bukan "extension tidak tersedia". Ditutup hari yang sama: tiga fixture ter-commit (csv/json/parquet) dibaca
+      `TestSpikeFileFixturesReadWithNoBundledConnector` dengan bundel kosong. Yang tersisa: aturan path relatif
+      §5.5, UI impor.
       **Keputusan XLSX tercatat**: extension vs parse Go-side vs
       "simpan sebagai CSV/Parquet" — tanpa jalur diam-diam.
 - [ ] **Transport ke sumber privat (BRD §5.7)** — bastion jadi **forwarder TCP lokal** dan dipakai oleh
