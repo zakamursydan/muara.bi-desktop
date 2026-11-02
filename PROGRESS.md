@@ -91,6 +91,11 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   dibangun dari engine di `muara.bi-service/backend/engine/` (lewat `replace`), bukan dari salinan kedua.
   Spike M0 berjalan **2026-11-01**: modul Go pertama di repo ini, skeleton Wails v3.0.0 berdiri, dan
   **React/Vite sudah jadi UI-nya** (binding memanggil engine, `frontend/dist` ter-embed di biner).
+  Sebagian besar M2 tertutup **2026-11-02** (sumber file + aturan path §5.5, `SyncSchema` lintas driver, katalog
+  sumber diperluas, penanda pemotongan sampai ke layar); yang tersisa di M2 butuh server atau jaringan nyata —
+  skema terkualifikasi di cache, forwarder bastion, dan pengukuran lewat jaringan. **M3 dimulai hari yang sama:**
+  `internal/bundle/` adalah store `.muara` yang pertama, dan butir "format & manifest berversi + save atomik +
+  `View` kelas satu" selesai dengan ketiga exit criterion-nya terukur (detail di §3 dan PLAN M3).
 - **Capaian sesi ini:** revisi BRD v2 dirampungkan dan diselaraskan dengan keputusan "View boleh lintas
   project" (BRD §5.2/FR-9/FR-10/FR-11/§13 langkah 8/§15, PLAN M3, wireframe S4a) → **M1.1** pengukuran
   batas engine dengan `go list` ([docs/engine-map.md](docs/engine-map.md)) → **M1.2** CGO fail-fast di
@@ -584,6 +589,53 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
   sungguhan, dan di repo ini `TestBundleRelativeSourceSurvivesTheFolderMoving` — menyimpan `data/orders.csv`,
   membaca 6 baris di folder pertama, lalu membaca **jumlah yang sama** dari temp root lain; penolakan `../orders.csv`
   diuji terhadap berkas yang memang ada, supaya penolakannya jelas aturan kita dan bukan kegagalan baca.
+- **Store `.muara` berdiri: format berversi, save atomik, `View` kelas satu (2026-11-02, M3 butir pertama
+  selesai — dan tiga exit criterion M3 ikut terukur):** `internal/bundle/` (`bundle.go` bentuk + validasi,
+  `store.go` zip + manifest) adalah paket penyimpanan pertama repo ini; sampai kemarin spike masih **tidak
+  menyimpan apa pun**, jadi janji "save lalu buka ulang" baru bisa diukur sekarang.
+  - **Format ditegakkan sebelum isi dibaca.** `Open` membaca `manifest.json` lebih dulu dan menolak dengan angka:
+    format ≠ `muara.bundle`, `version` ≠ 1 (naik → "update muara.bi Desktop", turun → format tak dikenal),
+    `min_app_version` di atas `bundle.AppVersion`, entri wajib hilang, nama entri tak dikenal, nama entri ganda,
+    dan berkas yang bukan zip. **`secrets.enc` ikut ditolak** — bukan karena tidak aman, tapi karena KDF-nya belum
+    ada; mengabaikan entri itu diam-diam berarti menyerahkan bundle yang isinya tidak bisa kita jelaskan.
+  - **Save tidak bisa merusak berkas lama.** `CreateTemp` di folder yang sama → tulis zip → `Sync` → `Rename`.
+    Dua jalur gagal diuji terpisah: validasi yang menolak **sebelum** menulis, dan `Rename` yang gagal **setelah**
+    archive lengkap (target sebuah folder) — berkas lama tetap identik byte dan tidak ada `.tmp` tertinggal.
+    Timestamp tunggal untuk seluruh entri membuat simpan ulang isi yang sama menghasilkan **berkas identik byte**;
+    itu bukan soal kerapian, itu prasyarat M4 yang harus memutuskan "View ini sudah ada" dari hash isi.
+  - **Yang dibaca `Connection` tidak bisa menampung kredensial.** Tidak ada field password/token/key/DSN di tipe
+    mana pun, jadi exit "grep isi bundle = nol string kredensial" ditegakkan oleh struktur, bukan oleh langkah
+    menyaring yang bisa lupa. Tesnya dua lapis: nama field digeledah lewat refleksi, dan isi tiap entri
+    **dideflate lebih dulu** baru dicari — grep di atas zip terkompresi tidak menemukan apa pun apa pun isi
+    bundle-nya, jadi hasil nol dari sana bukan bukti.
+  - **Aturan §5.4 jadi bentuk tipe, bukan pekerjaan yang ditunda:** tingkat 1 (`alias`/`driver`/`database`/`schema_filter`/
+    `note`) selalu ada, tingkat 2 (`host`/`port`/`user`/`ssl_mode` + target SSH) dikumpulkan dalam **satu blok
+    opsional** supaya toggle "sertakan alamat server" satu keputusan saat export, bukan satu flag per field.
+  - **`View` dibuktikan utuh, bukan dihitung.** Round-trip membandingkan tiap field, dan `SYNCED` wajib membawa
+    `builder_state` sedangkan `CUSTOM_SQL` wajib membawa `raw_sql` — View tanpa keduanya akan terbuka sebagai
+    widget kosong, yang persis kegagalan yang tidak boleh terjadi di produk yang menyimpan pekerjaan orang.
+    `builder_state`/`presentation`/`layout`/`global_filters`/`threshold` disimpan sebagai JSON mentah: bentuknya
+    milik FR-4, renderer, dan FR-9 — bukan milik store.
+  - **Save tegas, Open penurut — dan itu pilihan, bukan kelalaian.** Referensi (pin project, `view_refs`,
+    `aliases` yang dibaca View/semantic model) divalidasi saat **menulis** dan **tidak** saat membaca, karena
+    §5.4 menuntut import **melaporkan** "butuh alias `sales` yang belum ada", bukan membuang seluruh bundle
+    karena satu alias. Yang tetap ditolak saat membaca hanya yang tidak bisa diwakili sama sekali: `~/…` dan
+    `../…` di dalam path sumber (resolver engine §5.5, sekarang dipanggil store), `kind`/`query_mode` tak dikenal,
+    id/alias ganda. Berkas sumber yang **hilang** tetap bisa dibuka — itu nasib yang dicari pre-flight M4.
+  - **Dua angka yang cuma keluar kalau diukur.** `json.Marshal` atas slice `nil` = `null`, jadi entri kosong
+    sengaja ditulis `[]`; dan `MarshalIndent` Go 1.27 ikut **meng-indent JSON mentah yang tertanam**, sehingga
+    byte di disk lebih rapi daripada yang dipegang pemanggil — round-trip karenanya dibandingkan sebagai hasil
+    dekode, dan spasi tidak dianggap perubahan View. Ukuran nyata: bundle kosong **1189 byte**; 1000 View dengan
+    `builder_state` + `raw_sql` berbeda = **625 KB** `views.json` tak terkompresi → **16 KB** dalam zip. Artinya
+    definisi itu murah dan yang menentukan ukuran bundle adalah berkas data di *samping* `.muara` — angka
+    patokan untuk batas yang masih ditunda di butir path.
+  - **Bukti:** 14 tes + 28 subtes di `internal/bundle/` (round-trip penuh, entri wajib `[]`, byte-identik,
+    dua jalur save-gagal, 13 kasus penolakan validasi, 11 kasus penolakan saat membaca, path relatif/absolut
+    termasuk bundle + data dipindah ke root lain, berkas hilang tetap terbuka, nol kredensial), plus alias
+    divalidasi pakai `sqlident.IsPlain` dan warna project `#rrggbb` — aturan yang sama dipakai web, satu
+    implementasi dua konsumen. Gerbang dua repo **`ALL-DONE total-fail=0`** (`GATE-DONE fail=0` empat mode web,
+    `CGO-OFF-REJECTED-OK`, desktop CGO=1 build/vet/test, `meminfo` 6 target, `gofmt` bersih di dua repo).
+    Engine tidak disentuh sama sekali di butir ini, jadi tidak ada alasan angka di repo web berubah.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -710,7 +762,25 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    `DUCKDB_EXTENSION_DIRECTORY` ke sana.
    Kalau `go build` gagal dengan `pattern all:frontend/dist: no matching files found`, itu artinya langkah
    `npm run build` dilewat, bukan ada yang rusak di Go.
-2. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
+2. **M3 · `.muara` sebagai storage — sisa milestone ini (2026-11-02).** Yang sudah berdiri di
+   `internal/bundle/`: format §6 ditulis dan dibaca (7 entri JSON, `manifest.json` dibaca lebih dulu, dan
+   format, versi, atau `min_app_version` yang tidak dikenal ditolak dengan menyebut angkanya), save atomik
+   tmp → rename, `View` sebagai entitas kelas satu, dan path sumber file lewat resolver engine (§5.5).
+   Ketiga exit M3 terukur: save → buka ulang menjaga kedua View utuh, isi bundle yang sudah dideflate tidak
+   memuat satu pun string kredensial, dan bundle yang berpindah folder bersama berkas datanya tetap resolve.
+   Yang tersisa, urut dari yang paling dibutuhkan:
+   (a) **aplikasi harus bekerja pada satu berkas terbuka** (BRD §5.1): `QueryService` hari ini membuat engine di
+     memori dan tidak pernah membaca atau menulis `.muara`. Butuh dialog berkas dari Wails, `Untitled.muara`
+     untuk "mulai kosong", dan `Profile` lokal (pemetaan alias → host + kredensial mesin ini) yang **tidak**
+     ikut diekspor — dua hal terakhir inilah yang membuat store hari ini belum bisa dipakai pengguna;
+   (b) **`secrets.enc`**: argon2id → AES-256-GCM, kode baru (`cryptohelper` web hanya AES-GCM dengan key dari
+     env). Sampai blok itu ada, `Open` dengan sengaja menolak bundle yang memuat `secrets.enc`;
+   (c) **tiga tingkat ikut-tidaknya definisi koneksi saat export** — bentuk tipenya sudah siap (tingkat 2
+     dikemas sebagai satu blok `Address` + `SSHTarget` yang boleh dibiarkan kosong), tinggal toggle
+     "sertakan alamat server" di jalur export M4;
+   (d) **batas jumlah dan ukuran berkas sumber** di folder bundle — angka awal sudah terukur (lihat §3), tapi
+     batas yang pantas baru bisa ditetapkan setelah berkas data benar-benar ikut dipindah.
+3. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
    di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
    (a) **UI — selesai 2026-11-02.** Tiga usulan wireframe disetujui user dan dipasang di
@@ -733,7 +803,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    (c) **MongoDB — selesai 2026-11-02** (`root_cert` → `tlsCAFile`, plus penolakan `sslCAFile` yang diabaikan
    driver; lihat §3 dan engine-map §18);
    (d) **path relatif CA** ikut §5.5, baru relevan ketika `.muara` jadi storage di M3.
-3. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
+4. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
    `Session.RegisterFileSource` (CSV/TSV/Parquet/JSON lewat reader core, tanpa bundel), ditolak rapi untuk tipe
    lain, probe `-file`, dan tiga fixture ter-commit (`spike.csv`/`spike.json`/`spike.parquet`) yang dibaca
    `TestSpikeFileFixturesReadWithNoBundledConnector` di `go test ./...` — jadi runner Windows/Linux ikut
@@ -744,13 +814,16 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      dibaca**, `../` terbaca, `~` tidak diekspansi, `* ? [ ]` diperlakukan pattern oleh ketiga reader. Bentuk
      kanonik = relatif terhadap folder berkas `.muara` dengan pemisah `/`; keluar folder = ditolak; berkas di luar
      = ditinggal absolut supaya definisinya jujur "milik mesin ini". Detail di BRD §5.5 dan engine-map §22, bukti
-     di `TestBundleRelativeSourceSurvivesTheFolderMoving`. Yang masih teori tinggal **batas jumlah/ukuran berkas
-     per bundle**, dihitung dari angka nyata di M3;
+     di `TestBundleRelativeSourceSurvivesTheFolderMoving`. **Resolvernya sudah dipanggil store** sejak 2026-11-02
+     (`internal/bundle/`, lihat §3): `Save` menulis bentuk kanonik, `Open` membacanya ulang terhadap folder berkas.
+     Yang masih belum punya angka: **batas jumlah/ukuran berkas per bundle** — patokan awalnya sudah terukur
+     (bundle kosong 1189 byte; 1000 View = 625 KB `views.json` tak terkompresi → 16 KB dalam zip), jadi yang
+     perlu dibatasi adalah berkas data di samping `.muara`, bukan isinya;
    (b) **UI impor + registrasi view per sumber file** di produk (bukan spike) — termasuk menampilkan tipe hasil
      inferensi apa adanya;
    (c) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
    (Fixture parquet **tidak lagi** termasuk daftar ini — tertutup 2026-11-02, lihat §3.)
-4. **Katalog sumber — sisa setelah `SyncSchema` lintas driver (2026-11-02).** Yang selesai: web tidak lagi diam
+5. **Katalog sumber — sisa setelah `SyncSchema` lintas driver (2026-11-02).** Yang selesai: web tidak lagi diam
    untuk MySQL/SQLite/MongoDB, dan engine punya satu pintu baca metadata
    (`Session.DescribeSource`, aturan terukur di engine-map §20). Yang tinggal, urut dari yang paling murah:
    (a) **menyatukan Postgres ke katalog DuckDB** — sekarang web masih dua jalur (pgx untuk Postgres, engine untuk
@@ -768,7 +841,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      service);
    (d) **sisi desktop**: tree skema (FR-2) nanti memanggil `DescribeSource` yang sama, dan aturannya **tidak**
      boleh disalin ke repo ini — satu implementasi di engine, dua konsumen.
-5. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
+6. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
    *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*

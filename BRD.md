@@ -236,6 +236,16 @@ pesan jelas**, bukan error misterius. Bidang `origin_workspace_id`/`origin_proje
 opaque** (asal bundle, bukan keanggotaan) supaya bundle kelak bisa diimport ke edisi web tanpa mengasumsikan semantik
 tenant — `Project` desktop dan `Project` web tidak wajib berarti sama.
 
+**Ditegakkan di kode sejak 2026-11-02 (M3, `internal/bundle/`).** Satu hal berubah jadi lebih keras dari teks di atas:
+penolakan kredensial tidak lagi bergantung pada ingatan penulis kode. `Connection`, `Address` dan `SSHTarget`
+**tidak punya field** password/token/key/DSN — satu-satunya tempat secret adalah `secrets.enc`, yang malah
+**ditolak** saat dibaca sampai blok itu benar-benar diimplementasikan. Store juga senantiasa menulis tujuh entri
+di atas (entri kosong jadi `[]`, bukan `null`), dan menolak bundle yang entri wajibnya hilang, yang memuat entri
+bernama tak dikenal, atau yang menuliskan satu nama entri dua kali. Yang **tidak** boleh ditolak saat membaca:
+View yang menyebut alias yang belum ada di mesin ini — itu temuan pre-flight (§5.4), bukan alasan membuang seluruh
+bundle. Perilaku itu dites, dan kumpulan kunci JSON tiap entri ikut ditegakkan di tes, jadi menambah bidang ke
+bentuk simpanan adalah perubahan format yang harus tertulis di sini lebih dulu.
+
 ## 7. Kontrak wajib (MUST)
 
 Kelima hal ini tidak boleh hilang saat kode baru ditulis — di v1 statusnya emergent, di sini tersurat:

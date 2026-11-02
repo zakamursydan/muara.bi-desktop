@@ -450,15 +450,42 @@ pemotongan selalu ditandai di API, bukan hanya di log; dan sumber di belakang ba
       CSV/JSON. Pure Go, tanpa CGO. Yang perlu diputuskan: jalur ekspor **tidak boleh** mewarisi LIMIT
       tampilan 1000 baris — menulis ke disk laptop user adalah justru kasus di mana guardrail baris tidak
       diperlukan, dan itu yang membuat "angka terpotong di layar" bisa diselesaikan tanpa Parquet.
-- [ ] Format & manifest berversi, store dengan save atomik (tmp → rename), entity `View` kelas satu.
+- [x] **Format & manifest berversi, store dengan save atomik (tmp → rename), entity `View` kelas satu**
+      (2026-11-02, `internal/bundle/`): `.muara` ditulis sebagai zip berisi **7 entri JSON** — `manifest.json`
+      plus satu berkas per tipe entitas — dan `Open` membaca `manifest.json` **lebih dulu**. Format lain
+      (`muara.weird`), `version` ≠ 1, `min_app_version` di atas versi app, entri tak dikenal, entri wajib
+      yang hilang, entri ganda, dan `secrets.enc` (KDF-nya belum ditulis) **ditolak dengan menyebut nama field
+      dan angkanya**, bukan error misterius. Save = `CreateTemp` di folder yang sama → tulis zip → `Sync` →
+      `Rename`; kegagalan di titik mana pun membuat berkas lama tetap **identik byte** dan tidak ada `.tmp`
+      tersisa. Menyimpan bundle yang sama dua kali menghasilkan keluaran **identik byte** (satu timestamp untuk
+      seluruh archive) — itu prasyarat dedupe hash-isi di M4. `View` jadi kelas satu: `kind` dan `query_mode`
+      divalidasi, `SYNCED` wajib membawa `builder_state` dan `CUSTOM_SQL` wajib membawa `raw_sql` (kalau tidak,
+      View dibuka kembali sebagai widget kosong), `max_rows`/`cache_ttl_seconds` ikut tersimpan, dan
+      `builder_state`/`presentation` tetap JSON mentah — bentuknya milik FR-4 dan renderer, bukan store.
+      **Dua fakta yang cuma bisa didapat dengan mengukur:** `json.Marshal` atas slice `nil` menghasilkan `null`,
+      jadi entri kosong sengaja ditulis `[]` supaya bundle masih enak dibaca tangan; dan `MarshalIndent` Go 1.27
+      ikut **meng-indent JSON mentah yang tertanam di dalamnya**, sehingga round-trip dibandingkan sebagai hasil
+      dekode, bukan sebagai byte — spasi bukan perubahan View.
+      Aturan §5.4 ditegakkan pada **bentuk tipe**, bukan pada langkah menyaring saat menulis: `Connection` tidak
+      punya field password/token/key/DSN sama sekali, jadi "grep isi bundle = nol string kredensial" adalah
+      konsekuensi struktur. Tingkat 2 (`host`/`port`/`user`/`ssl_mode` + target SSH) dikumpulkan dalam satu blok
+      opsional supaya export nanti bisa membuangnya sebagai satu keputusan, bukan satu flag per field.
 - [ ] **Aturan path file** (lubang yang dibuka oleh keputusan #3): path relatif terhadap berkas `.muara`
       sebagai bentuk kanonik; resolver profile untuk remap lokal; ukuran/jumlah file dibatasi.
       **Aturannya sudah ditulis dan ditegakkan sejak 2026-11-02** (`duckdb.CanonicalFileSourcePath` +
-      `ResolveFileSourcePath` + penolakan glob/tilde di `FileSourceQuery`; BRD §5.5, engine-map §22) — yang
-      tersisa di butir ini cuma dua: **panggil resolvernya** saat store `.muara` menyimpan dan membuka definisi,
-      dan **batas ukuran/jumlah file** yang masih harus diukur dari angka nyata. Exit "dua berkas di folder
-      berbeda di mesin yang sama tetap resolve" sudah terbukti di level engine
-      (`TestBundleRelativeSourceSurvivesTheFolderMoving`).
+      `ResolveFileSourcePath` + penolakan glob/tilde di `FileSourceQuery`; BRD §5.5, engine-map §22).
+      **Resolvernya sekarang dipanggil store** (2026-11-02): `Save` menulis tiap path sumber dalam bentuk
+      kanonik relatif ke folder `.muara` (di luar folder → ditinggal absolut), `Open` dan
+      `Bundle.ResolveFileSources` membacanya ulang terhadap anchor yang sama, dan `~/…` atau `../…` yang
+      ditemukan di dalam berkas orang lain membuat bundle ditolak dengan alasan — sedangkan berkas yang
+      **hilang** tidak, karena itu justru nasib yang harus dilaporkan pre-flight (§5.5).
+      **Angka awal untuk batasnya:** bundle kosong 1189 byte; 1000 View dengan `builder_state` + `raw_sql`
+      berbeda = 625 KB `views.json` tak terkompresi → **16 KB** di dalam zip. Jadi ukuran bundle ditentukan
+      berkas data di *samping* `.muara`, bukan definisi di dalamnya — sisa butir ini tinggal mengukur jumlah
+      & ukuran file sumber yang ikut folder bundle, dan itu baru punya angka nyata di M4 waktu berkasnya
+      benar-benar ikut dipindah. Exit "dua berkas di folder berbeda di mesin yang sama tetap resolve" sudah
+      terbukti dua lapis: `TestBundleRelativeSourceSurvivesTheFolderMoving` (engine) dan
+      `TestBundleAndDataInDifferentFoldersStillResolve` (store).
 - [ ] Kredensial tidak pernah masuk bundle kecuali blok `secrets.enc` opt-in (argon2id → AES-256-GCM).
       KDF-nya kode baru; `cryptohelper` hari ini hanya AES-GCM dengan key dari env.
 

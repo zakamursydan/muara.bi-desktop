@@ -772,3 +772,20 @@ binernya dikompilasi), sementara `data\orders.csv` di Unix memang jadi satu nama
 "path tidak ada, bisa ditunjuk ulang", bukan path yang dilempar ke `Dir`. **Yang belum terukur di mesin ini**:
 perilaku resolver pada bundle yang benar-benar ditulis di Windows (butuh mesin Windows, M0 pertanyaan 1–3) dan
 batas jumlah/ukuran berkas per bundle (M3, dari angka nyata).
+
+**Konsumen kedua sudah memakainya (2026-11-02, M3).** `internal/bundle/store.go` memanggil
+`CanonicalFileSourcePath` dengan anchor = folder berkas `.muara` saat **menyimpan**, dan
+`ResolveFileSourcePath` dengan anchor yang sama saat **membuka** (`Bundle.ResolveFileSources`). Tiga hal yang
+perlu diingat orang berikutnya yang menyentuh engine:
+
+- Store **tidak** menambah aturan path sendiri. `~/…` dan `../…` yang ditemukan di dalam berkas orang lain
+  ditolak dengan `ErrFileSourceHomeRelative`/`ErrFileSourceOutsideAnchor` dari engine, dibungkus nama alias yang
+  bersangkutan — satu kalimat error, dua produk.
+- Yang **tidak** dilempar engine dan tidak boleh ditebak pemanggil: berkas yang hilang. Engine membalas
+  `No files found that match the pattern` untuk berkas hilang, folder, dan pattern tak cocok (baris terakhir
+  tabel di atas), jadi `Open` sengaja **membuka** bundle tanpa sumbernya ada dan membiarkan pre-flight M4
+  memisahkan tiga nasib itu dengan `os.Stat` + `DESCRIBE`.
+- Batas ukuran ikut terukur dari sisi definisi: **bundle kosong 1189 byte**, dan 1000 View dengan
+  `builder_state` + `raw_sql` yang berbeda-beda = **625 KB** `views.json` tak terkompresi → **16 KB** di dalam
+  zip. Angka itu menjawab sebagian pertanyaan "batas berapa" — definisi murah, yang berat adalah berkas data di
+  *samping* `.muara`, dan itu belum punya angka sampai bundel benar-benar ikut dipindah.
