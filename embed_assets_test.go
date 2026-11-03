@@ -99,6 +99,32 @@ func TestDocumentControlsAreInShippedBundle(t *testing.T) {
 	}
 }
 
+// TestExportImportControlsAreInShippedBundle is the same honesty check for the
+// S5 screen: the panel the user sees must be the one this build ships. The
+// "Terapkan gated on merah" promise lives in the UI, so the string the user
+// reads while the button is locked is asserted, not just the button label.
+func TestExportImportControlsAreInShippedBundle(t *testing.T) {
+	js := shippedJS(t)
+
+	for _, want := range []string{
+		"Ekspor/Impor", "Ekspor…", "Pilih berkas…", "Terapkan", "Yang akan ikut",
+		"Sertakan alamat server (tier 2)", "keputusan merah belum dijawab",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("the shipped bundle does not contain %q; the S5 screen is not in the app the user runs", want)
+		}
+	}
+
+	// JSON tags of the export/import request and plan models: their presence
+	// means the generated models, not hand-copied shapes, are what the panel
+	// sends to Go.
+	for _, tag := range []string{"includeServerDetails", "forceReuseAliases", "pinViews"} {
+		if !strings.Contains(js, tag) {
+			t.Errorf("the shipped bundle does not send %q; the S5 binding models did not reach the UI", tag)
+		}
+	}
+}
+
 func shippedJS(t *testing.T) string {
 	t.Helper()
 	handler := application.BundledAssetFileServer(bundledAssets())

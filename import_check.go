@@ -18,6 +18,9 @@ import (
 type ImportCheckLine struct {
 	// Name is the model or View name, as the user knows it.
 	Name string `json:"name"`
+	// ID is the model or View id, so the dialog can bind a decision (skip,
+	// pin) to the entity Merge will see.
+	ID string `json:"id,omitempty"`
 	// Kind separates a saved piece of SQL from a View.
 	Kind string `json:"kind"`
 	// Level is FR-11's merah/kuning/hijau: merah means the SQL does not
@@ -40,7 +43,12 @@ type ImportCheckLine struct {
 func (s *QueryService) ImportLiveCheck(path string) ([]ImportCheckLine, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.importLiveCheckLocked(path)
+}
 
+// importLiveCheckLocked opens the incoming bundle and runs the live half of
+// FR-11's pre-flight in a scratch session — never the open document's.
+func (s *QueryService) importLiveCheckLocked(path string) ([]ImportCheckLine, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("bundle: %s: %w", path, err)
@@ -49,7 +57,12 @@ func (s *QueryService) ImportLiveCheck(path string) ([]ImportCheckLine, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.liveCheckBundle(b, abs)
+}
 
+// liveCheckBundle takes an already-open bundle so ImportInspect can share the
+// open it made for Preflight instead of paying for a second one.
+func (s *QueryService) liveCheckBundle(b *bundle.Bundle, abs string) ([]ImportCheckLine, error) {
 	session, err := s.engine.NewSession(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("start a scratch session for %s: %w", filepath.Base(abs), err)
@@ -105,7 +118,7 @@ func checkModels(ctx context.Context, session duckdb.Session, b *bundle.Bundle) 
 
 	lines := make([]ImportCheckLine, 0, len(b.SemanticModels))
 	for _, m := range b.SemanticModels {
-		line := ImportCheckLine{Name: m.Name, Kind: "semantic_model"}
+		line := ImportCheckLine{Name: m.Name, ID: m.ID, Kind: "semantic_model"}
 		if err := results[m.ID]; err != nil {
 			line.Level, line.Reason = classifySQLResult(err)
 		} else {
@@ -120,7 +133,7 @@ func checkModels(ctx context.Context, session duckdb.Session, b *bundle.Bundle) 
 // SQL carries a forbidden pattern could never run in this product, so merah
 // is the honest line for it.
 func checkView(ctx context.Context, session duckdb.Session, b *bundle.Bundle, v bundle.View, serverAliases map[string]bool) ImportCheckLine {
-	line := ImportCheckLine{Name: v.Name, Kind: "view"}
+	line := ImportCheckLine{Name: v.Name, ID: v.ID, Kind: "view"}
 
 	if v.QueryMode == bundle.QuerySynced {
 		line.Level = "kuning"

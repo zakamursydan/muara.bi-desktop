@@ -10,5 +10,12 @@ export {
 export {
     DocumentInfo,
     EngineStatus,
+    ExportCatalog,
+    ExportPreviewResult,
+    ExportRequest,
+    ExportResult,
+    ExportScopeOption,
+    ImportCheckLine,
+    ImportInspectResult,
     MountReport
 } from "./models.js";

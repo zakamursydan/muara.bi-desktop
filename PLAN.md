@@ -580,16 +580,18 @@ kredensial; dua berkas di folder berbeda di mesin yang sama tetap resolve.
       hilang/folder (kuning), beda driver (kuning), `sealed_ignored` (kuning); 11 tes export + 9 tes import
       hijau. Validasi skema merah/kuning per View juga selesai hari yang sama (`import_check.go`):
       `DESCRIBE` di sesi scratch dengan klasifikasi error yang diukur — tabel/kolom tak resolve = merah,
-      tipe tak cocok = kuning, View SYNCED dan View ber-alias server jujur kuning. Yang **belum**: dialog S5
-      (pemilih cakupan + toggle tiga tingkat + prompt passphrase) di atas mekanisme yang sudah ada, dan
-      pembuktian skenario §13 utuh di dua mesin (infra user).
+      tipe tak cocok = kuning, View SYNCED dan View ber-alias server jujur kuning. Dialog S5 selesai
+      2026-11-03: pemilih cakupan + toggle tiga tingkat + prompt passphrase terpasang di atas mekanisme
+      ini (`import_export.go` + `ExportImport.jsx`). Yang **belum**: pembuktian skenario §13 utuh di dua
+      mesin (infra user).
 - [x] Tidak ada partial import.
       **Terukur 2026-11-03:** `Merge` tidak menulis dan tidak memutasi apa pun — ia hanya mengembalikan
       bundle hasil untuk disimpan lewat `Save` atomik M3 — dan semua penolakan terkumpul dalam satu panggilan
       (`errors.Join` + `validate(true)` akhir), jadi tidak ada urutan setengah jadi dan "batal" = tidak ada
       satu pun Save. Diuji dari Go: merge menolak sampai tiap merah diputus, merge tidak memutasi lokal,
-      import kedua kali idempoten. Layar pre-flight (S5) yang memakainya belum dibuat — itu pekerjaan UI di
-      atas API ini, dan satu-satunya jalan penerapan tetap Merge → Save.
+      import kedua kali idempoten. Layar pre-flight (S5) yang memakainya sudah dibuat 2026-11-03
+      (`ExportImport.jsx`) — keputusan inline per isu merah/kuning plus gerbang "Terapkan" selama merah
+      belum dijawab — dan satu-satunya jalan penerapan tetap Merge → Save.
 - [ ] Skenario penerimaan BRD §13 jadi tes regresi otomatis, dijalankan di dua mesin di CI, dengan
       langkah tambahan: file sumber ada di folder berbeda di PC B, dan langkah 8 (View di-pin dua
       project, import bundel sama dua kali → tetap satu View).

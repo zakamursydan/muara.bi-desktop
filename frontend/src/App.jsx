@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { QueryService } from "../bindings/muara.bi/desktop/index.js";
 import { TruncateReason } from "../bindings/muara.bi/engine/duckdb/models.js";
+import ExportImport from "./ExportImport.jsx";
 
 // With no document open nothing is mounted, so the starting query asks the engine
 // about itself instead of naming a source that does not exist yet.
@@ -17,6 +18,7 @@ export default function App() {
   // file must never throw away the query someone is already writing.
   const [edited, setEdited] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
 
   useEffect(() => {
     Promise.all([QueryService.Status(), QueryService.Current()])
@@ -65,6 +67,13 @@ export default function App() {
     }
   }
 
+  // An import replaces the whole document (merge + reopen), so the app-level
+  // doc state refreshes here instead of inside the panel.
+  async function imported(info) {
+    setDoc(info);
+    report(`Impor diterapkan: ${info.views} View, ${info.semanticModels} model, ${info.connections} sumber.`);
+  }
+
   const open = !!doc?.open;
   const mounted = (doc?.mounts ?? []).filter((m) => m.mounted).length;
   const note = result ? truncationNote(result) : null;
@@ -108,6 +117,13 @@ export default function App() {
           >
             Simpan sebagai…
           </button>
+          <button
+            className={showTransfer ? "ghost on" : "ghost"}
+            onClick={() => setShowTransfer(!showTransfer)}
+            disabled={busy}
+          >
+            Ekspor/Impor
+          </button>
           <span className={doc?.dirty ? "fileName dirty" : "fileName"}>
             {open ? `${doc.dirty ? "● " : ""}${doc.name}` : "Tidak ada berkas terbuka"}
           </span>
@@ -149,6 +165,8 @@ export default function App() {
 
         {message ? <div className={isError ? "err" : "note"}>{message}</div> : null}
       </section>
+
+      {showTransfer ? <ExportImport doc={doc} onImported={imported} /> : null}
 
       <section className="card">
         <div className="toolbar">

@@ -6,6 +6,10 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as bundle$0 from "./internal/bundle/models.js";
+
 /**
  * DocumentInfo is the window's answer to "which file am I working on".
  */
@@ -201,6 +205,519 @@ export class EngineStatus {
 }
 
 /**
+ * ExportCatalog lists what the open document has, so the dialog offers
+ * concrete options instead of free text that could not resolve.
+ */
+export class ExportCatalog {
+    /**
+     * Creates a new ExportCatalog instance.
+     * @param {Partial<ExportCatalog>} [$$source = {}] - The source object to create the ExportCatalog.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {ExportScopeOption[] | undefined}
+             */
+            this["views"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["folders"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {ExportScopeOption[] | undefined}
+             */
+            this["dashboards"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {ExportScopeOption[] | undefined}
+             */
+            this["projects"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportCatalog instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ExportCatalog}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType3;
+        const $$createField1_0 = $$createType4;
+        const $$createField2_0 = $$createType3;
+        const $$createField3_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("views" in $$parsedSource) {
+            $$parsedSource["views"] = $$createField0_0($$parsedSource["views"]);
+        }
+        if ("folders" in $$parsedSource) {
+            $$parsedSource["folders"] = $$createField1_0($$parsedSource["folders"]);
+        }
+        if ("dashboards" in $$parsedSource) {
+            $$parsedSource["dashboards"] = $$createField2_0($$parsedSource["dashboards"]);
+        }
+        if ("projects" in $$parsedSource) {
+            $$parsedSource["projects"] = $$createField3_0($$parsedSource["projects"]);
+        }
+        return new ExportCatalog(/** @type {Partial<ExportCatalog>} */($$parsedSource));
+    }
+}
+
+/**
+ * ExportPreviewResult names what an export would carry, so the dialog can
+ * show the dependency closure before the user commits to a file name.
+ */
+export class ExportPreviewResult {
+    /**
+     * Creates a new ExportPreviewResult instance.
+     * @param {Partial<ExportPreviewResult>} [$$source = {}] - The source object to create the ExportPreviewResult.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["projects"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["connections"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["semanticModels"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["views"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["dashboards"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["alerts"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportPreviewResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ExportPreviewResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType4;
+        const $$createField1_0 = $$createType4;
+        const $$createField2_0 = $$createType4;
+        const $$createField3_0 = $$createType4;
+        const $$createField4_0 = $$createType4;
+        const $$createField5_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("projects" in $$parsedSource) {
+            $$parsedSource["projects"] = $$createField0_0($$parsedSource["projects"]);
+        }
+        if ("connections" in $$parsedSource) {
+            $$parsedSource["connections"] = $$createField1_0($$parsedSource["connections"]);
+        }
+        if ("semanticModels" in $$parsedSource) {
+            $$parsedSource["semanticModels"] = $$createField2_0($$parsedSource["semanticModels"]);
+        }
+        if ("views" in $$parsedSource) {
+            $$parsedSource["views"] = $$createField3_0($$parsedSource["views"]);
+        }
+        if ("dashboards" in $$parsedSource) {
+            $$parsedSource["dashboards"] = $$createField4_0($$parsedSource["dashboards"]);
+        }
+        if ("alerts" in $$parsedSource) {
+            $$parsedSource["alerts"] = $$createField5_0($$parsedSource["alerts"]);
+        }
+        return new ExportPreviewResult(/** @type {Partial<ExportPreviewResult>} */($$parsedSource));
+    }
+}
+
+/**
+ * ExportRequest is the export dialog's answer: one scope (FR-10), the tier-2
+ * decision (§5.5), and an optional passphrase.
+ */
+export class ExportRequest {
+    /**
+     * Creates a new ExportRequest instance.
+     * @param {Partial<ExportRequest>} [$$source = {}] - The source object to create the ExportRequest.
+     */
+    constructor($$source = {}) {
+        if (!("all" in $$source)) {
+            /**
+             * Exactly one of these must be set; the refusal is Export's own.
+             * @member
+             * @type {boolean}
+             */
+            this["all"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["viewId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["folder"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["dashboardId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["projectId"] = undefined;
+        }
+        if (!("includeServerDetails" in $$source)) {
+            /**
+             * IncludeServerDetails is the §5.5 tier-2 toggle. The dialog starts it ON;
+             * false drops every Address/SSH block, which is the safe direction when a
+             * caller never sets it.
+             * @member
+             * @type {boolean}
+             */
+            this["includeServerDetails"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * Passphrase seals the tier-2 address blocks into secrets.enc instead of
+             * leaving them in the clear. Empty means no sealing.
+             * @member
+             * @type {string | undefined}
+             */
+            this["passphrase"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ExportRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ExportRequest(/** @type {Partial<ExportRequest>} */($$parsedSource));
+    }
+}
+
+/**
+ * ExportResult is what the dialog shows after the save: where the file went
+ * and what it carries.
+ */
+export class ExportResult {
+    /**
+     * Creates a new ExportResult instance.
+     * @param {Partial<ExportResult>} [$$source = {}] - The source object to create the ExportResult.
+     */
+    constructor($$source = {}) {
+        if (!("cancelled" in $$source)) {
+            /**
+             * Cancelled is true when the user closed the save dialog without a name —
+             * an answer, not a failure, and the open document is untouched.
+             * @member
+             * @type {boolean}
+             */
+            this["cancelled"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["path"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (!("sealed" in $$source)) {
+            /**
+             * Sealed is true when the passphrase path was taken: the address blocks
+             * traveled only inside secrets.enc.
+             * @member
+             * @type {boolean}
+             */
+            this["sealed"] = false;
+        }
+        if (!("projects" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["projects"] = 0;
+        }
+        if (!("connections" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["connections"] = 0;
+        }
+        if (!("semanticModels" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["semanticModels"] = 0;
+        }
+        if (!("views" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["views"] = 0;
+        }
+        if (!("dashboards" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["dashboards"] = 0;
+        }
+        if (!("alerts" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["alerts"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ExportResult}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ExportResult(/** @type {Partial<ExportResult>} */($$parsedSource));
+    }
+}
+
+/**
+ * ExportScopeOption is one entry a scope dropdown can name.
+ */
+export class ExportScopeOption {
+    /**
+     * Creates a new ExportScopeOption instance.
+     * @param {Partial<ExportScopeOption>} [$$source = {}] - The source object to create the ExportScopeOption.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportScopeOption instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ExportScopeOption}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ExportScopeOption(/** @type {Partial<ExportScopeOption>} */($$parsedSource));
+    }
+}
+
+/**
+ * ImportCheckLine is one line of the live half of FR-11's pre-flight: a
+ * semantic model or View checked against the incoming bundle's own sources in
+ * a scratch DuckDB session. The static half (alias conflicts, dedupe, paths)
+ * is bundle.Preflight; this half answers the question Preflight cannot, which
+ * is "will this View's SQL resolve on this machine".
+ */
+export class ImportCheckLine {
+    /**
+     * Creates a new ImportCheckLine instance.
+     * @param {Partial<ImportCheckLine>} [$$source = {}] - The source object to create the ImportCheckLine.
+     */
+    constructor($$source = {}) {
+        if (!("name" in $$source)) {
+            /**
+             * Name is the model or View name, as the user knows it.
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * ID is the model or View id, so the dialog can bind a decision (skip,
+             * pin) to the entity Merge will see.
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * Kind separates a saved piece of SQL from a View.
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (!("level" in $$source)) {
+            /**
+             * Level is FR-11's merah/kuning/hijau: merah means the SQL does not
+             * resolve here (table or column missing, or the SQL itself is broken),
+             * kuning means it resolves but something is off or cannot be proven on
+             * this machine, hijau means the schema resolved.
+             * @member
+             * @type {string}
+             */
+            this["level"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * Reason explains a merah or kuning, and is written to be read by an
+             * analyst who has not seen this code. For a hijau line it carries the
+             * described column count.
+             * @member
+             * @type {string | undefined}
+             */
+            this["reason"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImportCheckLine instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImportCheckLine}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ImportCheckLine(/** @type {Partial<ImportCheckLine>} */($$parsedSource));
+    }
+}
+
+/**
+ * ImportInspectResult is everything the import tab shows before Terapkan: the
+ * static pre-flight (alias conflicts, dedupe, paths) and the live merah/kuning
+ * schema lines from the scratch session.
+ */
+export class ImportInspectResult {
+    /**
+     * Creates a new ImportInspectResult instance.
+     * @param {Partial<ImportInspectResult>} [$$source = {}] - The source object to create the ImportInspectResult.
+     */
+    constructor($$source = {}) {
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("issues" in $$source)) {
+            /**
+             * @member
+             * @type {bundle$0.ImportIssue[]}
+             */
+            this["issues"] = [];
+        }
+        if (!("lines" in $$source)) {
+            /**
+             * @member
+             * @type {ImportCheckLine[]}
+             */
+            this["lines"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ImportInspectResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ImportInspectResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType6;
+        const $$createField3_0 = $$createType8;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("issues" in $$parsedSource) {
+            $$parsedSource["issues"] = $$createField2_0($$parsedSource["issues"]);
+        }
+        if ("lines" in $$parsedSource) {
+            $$parsedSource["lines"] = $$createField3_0($$parsedSource["lines"]);
+        }
+        return new ImportInspectResult(/** @type {Partial<ImportInspectResult>} */($$parsedSource));
+    }
+}
+
+/**
  * MountReport is one line of "what this machine did with the sources this bundle
  * names". It exists because opening a bundle is not all-or-nothing: a file the
  * user moved, an alias this machine has no target for, and a server whose
@@ -281,3 +798,10 @@ export class MountReport {
 // Private type creation functions
 const $$createType0 = MountReport.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = ExportScopeOption.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = bundle$0.ImportIssue.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = ImportCheckLine.createFrom;
+const $$createType8 = $Create.Array($$createType7);

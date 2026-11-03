@@ -18,6 +18,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as bundle$0 from "./internal/bundle/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as duckdb$0 from "../engine/duckdb/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -46,6 +49,17 @@ export function AttachSampleSQLite() {
 }
 
 /**
+ * Catalog lists the scope options for the export dialog. Nothing here reads
+ * source data: names and ids only.
+ * @returns {$CancellablePromise<$models.ExportCatalog | null>}
+ */
+export function Catalog() {
+    return $Call.ByID(3554023596).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<void>}
  */
 export function Close() {
@@ -59,8 +73,91 @@ export function Close() {
  */
 export function Current() {
     return $Call.ByID(547123870).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
+}
+
+/**
+ * ExportBundle writes the scope's slice to a path the OS dialog picks, so the
+ * webview never supplies one. The open document does not become the exported
+ * file: a scoped export is a delivery to another machine, not a relocation of
+ * the working file — and a sealed export must not become the document, or the
+ * next plain Save would refuse it with ErrSealedBlock.
+ * @param {$models.ExportRequest} req
+ * @returns {$CancellablePromise<$models.ExportResult | null>}
+ */
+export function ExportBundle(req) {
+    return $Call.ByID(1873090495, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType5($result);
+    }));
+}
+
+/**
+ * ExportPreview computes the same closure Export does, without writing
+ * anything: the dialog renders it so the user sees what will travel.
+ * @param {$models.ExportRequest} req
+ * @returns {$CancellablePromise<$models.ExportPreviewResult | null>}
+ */
+export function ExportPreview(req) {
+    return $Call.ByID(1717375937, req).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType7($result);
+    }));
+}
+
+/**
+ * ImportApply merges the incoming file into the open document under the plan
+ * the dialog built, saves atomically, and reopens so the mounts reflect the
+ * merged sources. Merge's errors.Join refusal is the "batal = tidak ada yang
+ * berubah" half of FR-11: until every merah decision is in the plan, nothing
+ * is written.
+ * @param {string} path
+ * @param {bundle$0.ImportPlan} plan
+ * @returns {$CancellablePromise<$models.DocumentInfo | null>}
+ */
+export function ImportApply(path, plan) {
+    return $Call.ByID(2970033500, path, plan).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
+ * ImportInspect compares the incoming file against the open document twice —
+ * statically through bundle.Preflight and live through a scratch session that
+ * DESCRIBEs every View — and writes nothing. With no document open the static
+ * half runs against an empty bundle, which is the honest answer for a
+ * soon-to-be-created file.
+ * @param {string} path
+ * @returns {$CancellablePromise<$models.ImportInspectResult | null>}
+ */
+export function ImportInspect(path) {
+    return $Call.ByID(27466492, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType9($result);
+    }));
+}
+
+/**
+ * ImportLiveCheck mounts the incoming bundle's file sources and semantic
+ * models in a scratch session — never the open document's — and describes
+ * every View, so the import screen can mark Views merah/kuning before a single
+ * byte is written (FR-11). A View that reads a server source is honestly
+ * reported kuning rather than merah: this build cannot attach it, which is a
+ * property of the machine, not of the View.
+ * @param {string} path
+ * @returns {$CancellablePromise<$models.ImportCheckLine[]>}
+ */
+export function ImportLiveCheck(path) {
+    return $Call.ByID(1770630922, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType11($result);
+    }));
+}
+
+/**
+ * ImportPick asks the OS which bundle the user means to import. An empty
+ * result with no error is a cancel: the dialog's "no" is not a failure.
+ * @returns {$CancellablePromise<string>}
+ */
+export function ImportPick() {
+    return $Call.ByID(3356437905);
 }
 
 /**
@@ -75,7 +172,7 @@ export function Current() {
  */
 export function NewUntitled() {
     return $Call.ByID(1195639920).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -87,7 +184,7 @@ export function NewUntitled() {
  */
 export function Open(path) {
     return $Call.ByID(1492072205, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -102,7 +199,7 @@ export function Open(path) {
  */
 export function OpenWithDialog() {
     return $Call.ByID(3134027445).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -115,7 +212,7 @@ export function OpenWithDialog() {
  */
 export function Run(sql) {
     return $Call.ByID(3599327438, sql).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType13($result);
     }));
 }
 
@@ -125,7 +222,7 @@ export function Run(sql) {
  */
 export function Save() {
     return $Call.ByID(1481670324).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -138,7 +235,7 @@ export function Save() {
  */
 export function SaveAs(path) {
     return $Call.ByID(510597972, path).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -149,7 +246,7 @@ export function SaveAs(path) {
  */
 export function SaveAsWithDialog() {
     return $Call.ByID(1320051020).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType3($result);
     }));
 }
 
@@ -158,14 +255,24 @@ export function SaveAsWithDialog() {
  */
 export function Status() {
     return $Call.ByID(4233353187).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType15($result);
     }));
 }
 
 // Private type creation functions
-const $$createType0 = $models.DocumentInfo.createFrom;
+const $$createType0 = $models.ExportCatalog.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = duckdb$0.QueryResult.createFrom;
+const $$createType2 = $models.DocumentInfo.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = $models.EngineStatus.createFrom;
+const $$createType4 = $models.ExportResult.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
+const $$createType6 = $models.ExportPreviewResult.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = $models.ImportInspectResult.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = $models.ImportCheckLine.createFrom;
+const $$createType11 = $Create.Array($$createType10);
+const $$createType12 = duckdb$0.QueryResult.createFrom;
+const $$createType13 = $Create.Nullable($$createType12);
+const $$createType14 = $models.EngineStatus.createFrom;
+const $$createType15 = $Create.Nullable($$createType14);

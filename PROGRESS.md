@@ -692,7 +692,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     tidak ada tes Go yang bisa memanggil dialog OS.
 - **Mesin export/import M4 berdiri: cakupan + dependensi transitif, pre-flight statis, apply atomik, dan
   validasi skema hidup (2026-11-03, `internal/bundle/export.go` + `import.go` + `import_check.go`; layar S5
-  belum):** FR-10 dan FR-11 punya mekanisme lengkap — yang belum hanya layar S5 dan pembuktian §13 di dua
+  di entri berikutnya):** FR-10 dan FR-11 punya mekanisme lengkap — yang belum hanya pembuktian §13 di dua
   mesin.
   - **Cakupan export memilih tepat satu sasaran.** `Export(Scope)` menolak nol dan dua sasaran sekaligus
     (All / ViewID / Folder / DashboardID / ProjectID). Cakupan Proyek membawa View yang *direferensi* (pin +
@@ -746,6 +746,44 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     Setengah statis §13 (bentrok alias, remap path, dedupe, import dua kali) dan setengah hidup yang
     ber-sumber file (skema merah/kuning) sudah jadi tes regresi; yang tersisa butuh Postgres/Mongo + dua
     mesin CI (infra user).
+- **Layar S5 Export/Import terpasang di atas mesin M4 (2026-11-03, `import_export.go` + `frontend/src/ExportImport.jsx`):
+  enam binding baru, panel dua tab, dan empat keputusan produk yang semuanya terukur dari Go.**
+  - **Enam binding baru di lapisan aplikasi:** `Catalog` (pilihan cakupan: View/folder/dashboard/proyek,
+    folder diurut), `ExportPreview` (daftar isi yang akan ikut, dihitung lewat penutupan yang sama dengan
+    export asli — preview dan ekspor tidak mungkin beda pendapat), `ExportBundle` (dialog SaveFile OS;
+    batal = `{Cancelled:true}`, bukan error), `ImportPick` (dialog OpenFile OS; batal = path kosong),
+    `ImportInspect` (Preflight statis + `ImportLiveCheck` berbagi **satu** `bundle.Open` — bundle masuk
+    tidak dibaca dua kali; tanpa dokumen terbuka Preflight tetap jalan terhadap bundle kosong), dan
+    `ImportApply` (= `Merge` → `Save` atomik M3 → buka ulang dokumen supaya mount sumber hasil merge
+    langsung terlihat). `ImportCheckLine.ID` ikut View/Model yang diperiksa supaya baris laporan bisa
+    diikat ke keputusan (skip/pin) di dialog.
+  - **Empat keputusan produk export:**
+    1. Ekspor menulis **salinan**; dokumen yang terbuka tidak pernah berubah — ekspor ber-cakupan adalah
+       kiriman, bukan pindah-berkas, dan ekspor tersegel tidak boleh jadi dokumen aktif karena Save polos
+       berikutnya akan ditolak `ErrSealedBlock`.
+    2. Passphrase menyegel tepat blok tier-2 (Address/SSH) — mereka bepergian hanya di dalam `secrets.enc`,
+       tidak pernah dua kali (polos + tersegel). Bentuk payload dikunci: `exportSealedBlock` JSON, dibaca
+       balik oleh unseal M6.
+    3. Passphrase tanpa yang bisa disegel **ditolak** ("nothing to seal") — segel kosong akan menipu user
+       bahwa ada yang terlindungi.
+    4. Ekspor menimpa path dokumen yang sedang terbuka **ditolak** — menyimpan bundle ber-cakupan di atas
+       berkas kerja akan menghapus isi yang tidak ikut cakupan.
+  - **Panel dua tab sesuai wireframe yang disetujui.** Tab Ekspor: radio tepat-satu cakupan + dropdown per
+    jenis + preview dependensi yang menyegar otomatis + toggle "sertakan alamat server (tier 2)" default
+    NYALA (off menghapus passphrase) + prompt passphrase. Tab Impor: pilih berkas → laporan pre-flight
+    merah/kuning/hijau dengan **keputusan inline** (pakai ulang alias / lewati View / lewati-timpa duplikat
+    / tunjuk-ulang path), baris cek skema hidup sebagai chip level, pin View ke proyek lokal, dan "Terapkan"
+    **nonaktif selama masih ada merah yang belum dijawab** — gerbangnya di UI, bukan sekadar di API.
+  - **Bukti:** 8 tes cgo baru di `import_export_test.go` (cakupan membawa tepat yang disebut cakupan,
+    toggle tier-2 + passphrase + penolakan "nothing to seal" tanpa satu berkas tertulis, penolakan menimpa
+    dokumen terbuka, katalog, inspect statis+hidup gabung tanpa mengganggu sesi dokumen, apply menolak
+    sampai merah diputus lalu idempoten, apply menolak tanpa dokumen/tersegel, preview menamai penutupan) +
+    `TestExportImportControlsAreInShippedBundle` di `embed_assets_test.go` (string yang ditulis UI dan JSON
+    tag `includeServerDetails`/`forceReuseAliases`/`pinViews` ada di bundle JS yang di-embed) — suite penuh
+    hijau, vite build bersih, `.app` dibangun ulang dengan 3 extension. **Batas jujurnya:** baris laporan
+    yang terisi data dan dialog OS butuh klik manusia di aplikasi sungguhan — cek browser hanya membuktikan
+    panel ter-render; pemasangan `.app` baru di `/Applications` juga menunggu user (penggantian lewat
+    `rm -rf`/`cp` diblokir untuk AI).
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -925,8 +963,11 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      dan mengklasifikasikan error DuckDB yang diukur: tabel/kolom tak resolve = merah, tipe tak cocok =
      kuning, View SYNCED dan View ber-alias server jujur kuning ("belum bisa dibuktikan di mesin ini").
      Sesi dokumen yang terbuka tidak tersentuh (dites dua arah). Lihat §3;
-   (b) **layar S5 Export/Import** (pemilih cakupan + toggle tiga tingkat §5.4 + laporan pre-flight + remap)
-     di atas API yang sudah ada — wireframe dulu, sesuai aturan UI;
+   (b) **layar S5 Export/Import — selesai 2026-11-03 (`import_export.go` + `frontend/src/ExportImport.jsx`).**
+     Enam binding baru (Catalog/ExportPreview/ExportBundle/ImportPick/ImportInspect/ImportApply), panel dua
+     tab sesuai wireframe yang disetujui, "Terapkan" nonaktif selama ada merah yang belum dijawab, 8 tes
+     cgo + 1 tes embed hijau; pemasangan `.app` baru + klik manusia di dialog OS masih menunggu user.
+     Lihat §3;
    (c) **skenario §13 penuh di dua mesin CI** — butuh Postgres/Mongo hidup + dua mesin (infra user).
      Setengah statis + setengah hidup ber-sumber file sudah jadi tes regresi Go (lihat §3).
 4. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
