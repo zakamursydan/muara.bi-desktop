@@ -690,6 +690,44 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     `/Applications/muara-bi.app` dengan tanda tangan ad-hoc. Yang tersisa benar-benar cuma **satu klik manusia
     pada dialog Wails** — `OpenWithDialog` / `SaveAsWithDialog` belum pernah berjalan di jendela sungguhan, dan
     tidak ada tes Go yang bisa memanggil dialog OS.
+- **Mesin export/import M4 berdiri: cakupan + dependensi transitif, pre-flight statis, dan apply atomik
+  (2026-11-03, `internal/bundle/export.go` + `import.go`; layar S5 belum):** FR-10 dan FR-11 punya mekanisme
+  lengkap di level paket — yang belum hanya dua hal yang memang bukan milik paket ini: validasi skema hidup
+  (M4d, butuh sesi DuckDB) dan layar.
+  - **Cakupan export memilih tepat satu sasaran.** `Export(Scope)` menolak nol dan dua sasaran sekaligus
+    (All / ViewID / Folder / DashboardID / ProjectID). Cakupan Proyek membawa View yang *direferensi* (pin +
+    dashboard), bukan yang dimiliki — persis butir FR-10; Dashboard membawa View-nya; Folder mencocokkan
+    `view.folder` persis. Sumber tidak konsisten ditolak lebih dulu lewat `validate(true)`, dan `Sealed`
+    **tidak pernah** ikut cakupan apa pun — passphrase segar adalah keputusan dialog export, bukan bawaan
+    bundle; alert hanya ikut All; manifest disalin apa adanya.
+  - **Dependensi model diselesaikan dua jalan, dan jalan utamanya struktural.** `View.ModelRefs` (field baru,
+    di-`Save`-validasi: View tak boleh menunjuk model yang tidak ada di bundle) adalah jejak yang ditulis
+    aplikasi; untuk bundle lama ada pemindaian teks SQL dengan tokenizer yang melewati literal `'…'`,
+    identifier `"…"`, dan komentar `--`/`/* */`. Hasil pemindaian sengaja **superset** (kata kunci ikut
+    terbaca, nama model yang muncul dalam string literal ikut terbawa) — superset aman, subset merusak View.
+    Penutupan transitif mengikuti model-atas-model. Alasan pemindaian tidak jadi satu-satunya jalan:
+    `builder_state` desktop masih JSON milik FR-4 tanpa bentuk tetap, jadi tidak ada unmarshal yang andal —
+    scan teks adalah jaring pengaman, bukan kontrak.
+  - **Pre-flight statis menjawab semua keputusan FR-11 yang tidak butuh server.** Bentrok alias (merah,
+    menyebut kedua driver), alias yang tidak terdefinisi di mana pun (merah), View/model duplikat **ID + hash
+    isi** (sama → hijau lewati; beda → merah tanya), path file hilang atau menunjuk folder (kuning), beda
+    driver untuk alias yang sama (kuning), blok `secrets.enc` di bundle masuk (kuning `sealed_ignored`), alias
+    dipakai ulang / baru / duplikat identik (hijau). Hash = sha256 atas JSON kanonis entitas, jadi perbedaan
+    indentasi simpanan di dua mesin tidak mengubah keputusan — lanjutan yang dijanjikan M3(b).
+  - **"Tidak ada import sebagian" berlaku secara konstruksi, bukan disiplin.** `Merge` tidak menulis dan tidak
+    memutasi apa pun: ia hanya mengembalikan bundle hasil, dan pemanggil menyimpan lewat `Save` atomik M3.
+    Semua penolakan terkumpul `errors.Join` dalam satu panggilan — bentrok tanpa `ForceReuseAliases`, alias
+    hilang, duplikat-beda tanpa keputusan Overwrite/Skip, View yang dipertahankan menunjuk model yang di-skip,
+    dan `validate(true)` akhir ("would not save") — jadi tidak ada urutan setengah jadi, dan "batal" = tidak
+    ada satu pun Save. Alias yang sudah ada lokal **selalu dipakai ulang** (profil lokal yang menang per
+    mesin — langkah 4 §13); `NewPaths` me-remap path file; View yang di-skip dicabut pin/dashboard-ref/
+    alert-nya; import kedua kali idempoten (penjaga ID alert — langkah 8 §13).
+  - **Bukti:** 11 tes export + 9 tes import di `internal/bundle/` (cakupan, transitif, penolakan sumber rusak,
+    pre-flight lengkap, merge menolak-sampai-tiap-merah-diputus, merge tidak memutasi lokal, idempoten dua
+    kali, referensi View di-skip dicabut, model di-skip ditolak bila View-nya dipertahankan, hasil merge
+    selalu lolos validasi) — suite penuh desktop hijau. Setengah statis §13 (bentrok alias, remap path,
+    dedupe, import dua kali) sudah jadi tes regresi; setengah hidupnya (skema merah/kuning, Postgres/Mongo,
+    dua mesin CI) menunggu M4d + infra user.
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -862,7 +900,17 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      sumber, bukan ribuan; CSV 2 juta baris **31,8 MB** = open 99 ms + `count(*)` 210 ms — ukuran tidak menyiksa
      laptop, jadi batas ukuran kelak melindungi **transfer/import**, bukan mesin. Angka batasnya sendiri tetap
      ditetapkan M4 waktu berkas benar-benar ikut dipindah, persis alasan yang ditulis PLAN.md.
-3. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
+3. **M4 · Round-trip export/import — mekanismenya selesai 2026-11-03 (`internal/bundle/export.go` +
+   `import.go`, lihat §3), yang tersisa urut dari yang paling dibutuhkan:**
+   (a) **validasi skema per View merah/kuning (M4d)** — setengah FR-11 yang butuh DuckDB nyata: sesi scratch
+     yang me-mount sumber file bundle masuk, lalu `DESCRIBE <view sql>`; tabel/kolom tak resolve = merah,
+     error tipe = kuning. Sengaja di lapisan aplikasi (butuh sesi), bukan paket bundle; sumber server tidak
+     bisa divalidasi di mesin ini dan harus dilaporkan apa adanya;
+   (b) **layar S5 Export/Import** (pemilih cakupan + toggle tiga tingkat §5.4 + laporan pre-flight + remap)
+     di atas API yang sudah ada — wireframe dulu, sesuai aturan UI;
+   (c) **skenario §13 penuh di dua mesin CI** — butuh Postgres/Mongo hidup + dua mesin (infra user).
+     Setengah statisnya sudah jadi tes regresi Go (lihat §3).
+4. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
    di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
    (a) **UI — selesai 2026-11-02.** Tiga usulan wireframe disetujui user dan dipasang di
@@ -885,7 +933,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    (c) **MongoDB — selesai 2026-11-02** (`root_cert` → `tlsCAFile`, plus penolakan `sslCAFile` yang diabaikan
    driver; lihat §3 dan engine-map §18);
    (d) **path relatif CA** ikut §5.5, baru relevan ketika `.muara` jadi storage di M3.
-4. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
+5. **Sumber file v1 — sisa setelah engine selesai (2026-11-02).** Yang sudah ada: `FileSourceQuery` +
    `Session.RegisterFileSource` (CSV/TSV/Parquet/JSON lewat reader core, tanpa bundel), ditolak rapi untuk tipe
    lain, probe `-file`, dan tiga fixture ter-commit (`spike.csv`/`spike.json`/`spike.parquet`) yang dibaca
    `TestSpikeFileFixturesReadWithNoBundledConnector` di `go test ./...` — jadi runner Windows/Linux ikut
@@ -905,7 +953,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      inferensi apa adanya;
    (c) **keputusan XLSX-source** dengan tiga opsi yang konsekuensinya sudah tercatat di §3.
    (Fixture parquet **tidak lagi** termasuk daftar ini — tertutup 2026-11-02, lihat §3.)
-5. **Katalog sumber — sisa setelah `SyncSchema` lintas driver (2026-11-02).** Yang selesai: web tidak lagi diam
+6. **Katalog sumber — sisa setelah `SyncSchema` lintas driver (2026-11-02).** Yang selesai: web tidak lagi diam
    untuk MySQL/SQLite/MongoDB, dan engine punya satu pintu baca metadata
    (`Session.DescribeSource`, aturan terukur di engine-map §20). Yang tinggal, urut dari yang paling murah:
    (a) **menyatukan Postgres ke katalog DuckDB** — sekarang web masih dua jalur (pgx untuk Postgres, engine untuk
@@ -923,7 +971,7 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      service);
    (d) **sisi desktop**: tree skema (FR-2) nanti memanggil `DescribeSource` yang sama, dan aturannya **tidak**
      boleh disalin ke repo ini — satu implementasi di engine, dua konsumen.
-6. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
+7. Verifikasi yang masih menunggu: perubahan DSN/validasi ini **baru terbukti di level unit**. HTTP-nya
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
    *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*

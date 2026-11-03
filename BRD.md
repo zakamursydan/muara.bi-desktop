@@ -366,6 +366,10 @@ menghapus View yang dipin-nya.
 (semantic model, View lain, alias). Cakupan "Proyek" membawa View yang *direferensi* proyek itu, bukan View yang
 *dimiliki* — proyek lain yang mempin View yang sama tidak ikut terbawa. Bagian koneksi mengikuti tiga tingkat §5.4;
 bagian file mengikuti §5.5. Output `.muara`.
+(Mekanisme cakupan + dependensi transitif terimplementasi 2026-11-03 di `Bundle.Export(Scope)` +
+`View.ModelRefs`, `internal/bundle/export.go`: cakupan proyek membawa View yang direferensi, bukan yang
+dimiliki; penutupan model transitif mengikuti `ModelRefs` dengan pemindaian teks SQL sebagai jaring pengaman;
+`secrets.enc` tidak pernah ikut cakupan apa pun.)
 
 **FR-11 Import dengan laporan pre-flight.** Sebelum menulis apa pun: bentrok alias (pakai yang ada / ganti nama /
 ikat ke koneksi lain); validasi skema per View (tabel/kolom tak resolve = merah, tipe tak cocok = kuning);
@@ -373,6 +377,10 @@ peringatan beda driver; permintaan password untuk koneksi tanpa secret; **path f
 **View duplikat** (ID sama + hash sama → lewati; ID sama + hash beda → tanyakan, jangan diam-diam menimpa; View
 baru → tambah, lalu tanyakan proyek mana yang boleh mempin-nya). Koneksi yang tidak terhubung diberi sebab yang
 benar (§5.7): *host tidak terjangkau — sedang VPN?* bukan *password salah*.
+(Pre-flight statis + apply atomik terimplementasi 2026-11-03 di `internal/bundle/import.go`: bentrok alias,
+dedupe ID+hash isi, path hilang/folder, beda driver, `sealed_ignored` — merah/kuning/hijau; `Merge` tidak
+menulis/memutasi dan mengumpulkan semua penolakan sekaligus. Validasi skema merah/kuning per View masih
+menunggu M4d — butuh sesi DuckDB.)
 **Tidak ada import sebagian** — batal berarti tidak ada yang berubah.
 
 **FR-12 Ekspor hasil.** CSV / XLSX / JSON / Parquet dari result grid, kartu datapabel, atau seluruh dashboard
@@ -496,6 +504,8 @@ Dialog, Tag(ok/warn/err), EmptyState.
 
 Satu-satunya tes yang membuktikan janji utama produk. Dijalankan apa adanya di dua mesin, dan menjadi tes regresi
 otomatis di M4.
+(Setengah statisnya sudah otomatis sejak 2026-11-03 — bentrok alias, remap path, dedupe ID+hash, import dua kali
+idempoten — lewat tes Go di `internal/bundle/`; setengah hidupnya butuh Postgres/Mongo + dua mesin.)
 
 1. **PC A:** connect `sales` (Postgres) + `events` (MongoDB) + `targets` (CSV di `data/targets.csv`); buat 1
    semantic model; 3 View (table, line, kpi) di berkas, dipin ke Project "Retail ID"; 1 dashboard berisi

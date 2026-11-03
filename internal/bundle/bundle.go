@@ -211,6 +211,11 @@ type View struct {
 	MaxRows         int      `json:"max_rows,omitempty"`
 	CacheTTLSeconds int      `json:"cache_ttl_seconds,omitempty"`
 	Aliases         []string `json:"aliases"`
+	// ModelRefs names the semantic models this View reads, by model ID. The
+	// builder records it when the View is edited; export follows it because a
+	// stored reference is the only trace that survives a rename or a name that
+	// is not a plain identifier (FR-10's transitive resolution must not guess).
+	ModelRefs []string `json:"model_refs,omitempty"`
 }
 
 // Dashboard arranges Views; the layout and the global filters are the canvas's
@@ -443,6 +448,11 @@ func (b *Bundle) validate(checkRefs bool) error {
 		for _, alias := range v.Aliases {
 			if !aliases[alias] {
 				return fmt.Errorf("%w: view %q reads alias %q that this bundle does not define", ErrInvalid, v.ID, alias)
+			}
+		}
+		for _, ref := range v.ModelRefs {
+			if !models[ref] {
+				return fmt.Errorf("%w: view %q refs semantic model %q that is not in this bundle", ErrInvalid, v.ID, ref)
 			}
 		}
 	}

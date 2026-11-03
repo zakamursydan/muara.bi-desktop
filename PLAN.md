@@ -572,10 +572,28 @@ kredensial; dua berkas di folder berbeda di mesin yang sama tetap resolve.
 - [ ] FR-10 export (cakupan + resolusi dependensi transitif + pilihan kredensial tiga tingkat) dan
       FR-11 import (pre-flight: bentrok alias, remap, validasi skema merah/kuning, beda driver,
       **path file hilang/berubah skema**, **View duplikat: ID + hash isi**).
-- [ ] Tidak ada partial import.
+      **Terukur 2026-11-03 (`internal/bundle/export.go` + `import.go`):** cakupan export memilih tepat satu
+      dari All/View/Folder/Dashboard/Proyek (nol dan dua sekaligus ditolak) dengan dependensi transitif lewat
+      `View.ModelRefs` — field struktural yang di-`Save`-validasi — plus pemindaian teks SQL sebagai jaring
+      pengaman bundle lama; `secrets.enc` tidak pernah ikut cakupan apa pun; pre-flight statis melaporkan
+      bentrok alias (merah), alias hilang (merah), duplikat ID+hash (sama → hijau, beda → merah), path file
+      hilang/folder (kuning), beda driver (kuning), `sealed_ignored` (kuning); 11 tes export + 9 tes import
+      hijau. Yang **belum**: validasi skema merah/kuning per View (M4d — butuh sesi DuckDB), pilihan
+      kredensial tiga tingkat di dialog (mekanismenya sudah ada sejak M3c), dan pembuktian skenario §13 utuh
+      di dua mesin (infra user).
+- [x] Tidak ada partial import.
+      **Terukur 2026-11-03:** `Merge` tidak menulis dan tidak memutasi apa pun — ia hanya mengembalikan
+      bundle hasil untuk disimpan lewat `Save` atomik M3 — dan semua penolakan terkumpul dalam satu panggilan
+      (`errors.Join` + `validate(true)` akhir), jadi tidak ada urutan setengah jadi dan "batal" = tidak ada
+      satu pun Save. Diuji dari Go: merge menolak sampai tiap merah diputus, merge tidak memutasi lokal,
+      import kedua kali idempoten. Layar pre-flight (S5) yang memakainya belum dibuat — itu pekerjaan UI di
+      atas API ini, dan satu-satunya jalan penerapan tetap Merge → Save.
 - [ ] Skenario penerimaan BRD §13 jadi tes regresi otomatis, dijalankan di dua mesin di CI, dengan
       langkah tambahan: file sumber ada di folder berbeda di PC B, dan langkah 8 (View di-pin dua
       project, import bundel sama dua kali → tetap satu View).
+      **Setengah statisnya sudah jadi tes regresi (2026-11-03):** bentrok alias, remap path (`NewPaths`),
+      dedupe ID+hash, import dua kali idempoten, View di-skip dicabut referensinya. Setengah hidupnya
+      (skema merah/kuning lewat DESCRIBE, sumber Postgres/Mongo, dua mesin CI) menunggu M4d + infra user.
 
 **Exit:** skenario §13 + varian file lulus tanpa satu karakter SQL diubah.
 
