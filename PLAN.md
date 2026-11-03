@@ -578,9 +578,11 @@ kredensial; dua berkas di folder berbeda di mesin yang sama tetap resolve.
       pengaman bundle lama; `secrets.enc` tidak pernah ikut cakupan apa pun; pre-flight statis melaporkan
       bentrok alias (merah), alias hilang (merah), duplikat ID+hash (sama → hijau, beda → merah), path file
       hilang/folder (kuning), beda driver (kuning), `sealed_ignored` (kuning); 11 tes export + 9 tes import
-      hijau. Yang **belum**: validasi skema merah/kuning per View (M4d — butuh sesi DuckDB), pilihan
-      kredensial tiga tingkat di dialog (mekanismenya sudah ada sejak M3c), dan pembuktian skenario §13 utuh
-      di dua mesin (infra user).
+      hijau. Validasi skema merah/kuning per View juga selesai hari yang sama (`import_check.go`):
+      `DESCRIBE` di sesi scratch dengan klasifikasi error yang diukur — tabel/kolom tak resolve = merah,
+      tipe tak cocok = kuning, View SYNCED dan View ber-alias server jujur kuning. Yang **belum**: dialog S5
+      (pemilih cakupan + toggle tiga tingkat + prompt passphrase) di atas mekanisme yang sudah ada, dan
+      pembuktian skenario §13 utuh di dua mesin (infra user).
 - [x] Tidak ada partial import.
       **Terukur 2026-11-03:** `Merge` tidak menulis dan tidak memutasi apa pun — ia hanya mengembalikan
       bundle hasil untuk disimpan lewat `Save` atomik M3 — dan semua penolakan terkumpul dalam satu panggilan
@@ -592,8 +594,9 @@ kredensial; dua berkas di folder berbeda di mesin yang sama tetap resolve.
       langkah tambahan: file sumber ada di folder berbeda di PC B, dan langkah 8 (View di-pin dua
       project, import bundel sama dua kali → tetap satu View).
       **Setengah statisnya sudah jadi tes regresi (2026-11-03):** bentrok alias, remap path (`NewPaths`),
-      dedupe ID+hash, import dua kali idempoten, View di-skip dicabut referensinya. Setengah hidupnya
-      (skema merah/kuning lewat DESCRIBE, sumber Postgres/Mongo, dua mesin CI) menunggu M4d + infra user.
+      dedupe ID+hash, import dua kali idempoten, View di-skip dicabut referensinya. Setengah hidup yang
+      ber-sumber file juga sudah: skema merah/kuning lewat `ImportLiveCheck` (`import_check_test.go`).
+      Yang tersisa butuh sumber Postgres/Mongo + dua mesin CI (infra user).
 
 **Exit:** skenario §13 + varian file lulus tanpa satu karakter SQL diubah.
 

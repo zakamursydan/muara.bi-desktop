@@ -379,8 +379,9 @@ baru → tambah, lalu tanyakan proyek mana yang boleh mempin-nya). Koneksi yang 
 benar (§5.7): *host tidak terjangkau — sedang VPN?* bukan *password salah*.
 (Pre-flight statis + apply atomik terimplementasi 2026-11-03 di `internal/bundle/import.go`: bentrok alias,
 dedupe ID+hash isi, path hilang/folder, beda driver, `sealed_ignored` — merah/kuning/hijau; `Merge` tidak
-menulis/memutasi dan mengumpulkan semua penolakan sekaligus. Validasi skema merah/kuning per View masih
-menunggu M4d — butuh sesi DuckDB.)
+menulis/memutasi dan mengumpulkan semua penolakan sekaligus. Validasi skema merah/kuning per View juga sudah
+(`import_check.go`, `ImportLiveCheck`): `DESCRIBE` di sesi scratch — tabel/kolom tak resolve = merah, tipe tak
+cocok = kuning, View SYNCED dan View ber-alias server dilaporkan jujur kuning. Yang tersisa: layar S5.)
 **Tidak ada import sebagian** — batal berarti tidak ada yang berubah.
 
 **FR-12 Ekspor hasil.** CSV / XLSX / JSON / Parquet dari result grid, kartu datapabel, atau seluruh dashboard
@@ -505,7 +506,8 @@ Dialog, Tag(ok/warn/err), EmptyState.
 Satu-satunya tes yang membuktikan janji utama produk. Dijalankan apa adanya di dua mesin, dan menjadi tes regresi
 otomatis di M4.
 (Setengah statisnya sudah otomatis sejak 2026-11-03 — bentrok alias, remap path, dedupe ID+hash, import dua kali
-idempoten — lewat tes Go di `internal/bundle/`; setengah hidupnya butuh Postgres/Mongo + dua mesin.)
+idempoten — lewat tes Go di `internal/bundle/`; setengah hidup yang ber-sumber file juga sudah: validasi skema
+merah/kuning di `import_check_test.go`. Yang tersisa butuh Postgres/Mongo + dua mesin CI.)
 
 1. **PC A:** connect `sales` (Postgres) + `events` (MongoDB) + `targets` (CSV di `data/targets.csv`); buat 1
    semantic model; 3 View (table, line, kpi) di berkas, dipin ke Project "Retail ID"; 1 dashboard berisi

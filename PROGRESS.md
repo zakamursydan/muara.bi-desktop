@@ -690,10 +690,10 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     `/Applications/muara-bi.app` dengan tanda tangan ad-hoc. Yang tersisa benar-benar cuma **satu klik manusia
     pada dialog Wails** — `OpenWithDialog` / `SaveAsWithDialog` belum pernah berjalan di jendela sungguhan, dan
     tidak ada tes Go yang bisa memanggil dialog OS.
-- **Mesin export/import M4 berdiri: cakupan + dependensi transitif, pre-flight statis, dan apply atomik
-  (2026-11-03, `internal/bundle/export.go` + `import.go`; layar S5 belum):** FR-10 dan FR-11 punya mekanisme
-  lengkap di level paket — yang belum hanya dua hal yang memang bukan milik paket ini: validasi skema hidup
-  (M4d, butuh sesi DuckDB) dan layar.
+- **Mesin export/import M4 berdiri: cakupan + dependensi transitif, pre-flight statis, apply atomik, dan
+  validasi skema hidup (2026-11-03, `internal/bundle/export.go` + `import.go` + `import_check.go`; layar S5
+  belum):** FR-10 dan FR-11 punya mekanisme lengkap — yang belum hanya layar S5 dan pembuktian §13 di dua
+  mesin.
   - **Cakupan export memilih tepat satu sasaran.** `Export(Scope)` menolak nol dan dua sasaran sekaligus
     (All / ViewID / Folder / DashboardID / ProjectID). Cakupan Proyek membawa View yang *direferensi* (pin +
     dashboard), bukan yang dimiliki — persis butir FR-10; Dashboard membawa View-nya; Folder mencocokkan
@@ -722,12 +722,30 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
     ada satu pun Save. Alias yang sudah ada lokal **selalu dipakai ulang** (profil lokal yang menang per
     mesin — langkah 4 §13); `NewPaths` me-remap path file; View yang di-skip dicabut pin/dashboard-ref/
     alert-nya; import kedua kali idempoten (penjaga ID alert — langkah 8 §13).
+  - **Validasi skema hidup per View (2026-11-03, `import_check.go` + `import_check_test.go`) — setengah
+    FR-11 yang butuh DuckDB nyata, di lapisan aplikasi.** `ImportLiveCheck(path)` membuka bundle masuk,
+    me-mount sumber file + model-nya di **sesi scratch** (tidak pernah sesi dokumen yang terbuka — dites
+    dua arah: dokumen tetap menjawab dan alias scratch tidak bocor ke dokumen), lalu `DESCRIBE` setiap
+    View. Hasilnya baris merah/kuning/hijau per model dan per View. Klasifikasi error-nya diukur dari
+    DuckDB v1.1.3, bukan ditebak: tabel hilang = "Catalog Error", kolom hilang = "not found in FROM
+    clause" / "does not have a column named" (ejaan *berbeda* untuk `orders.kolom` terkualifikasi), tipe
+    tak cocok = "No function matches" (kuning), SQL rusak = "Parser Error" (merah); semua yang tidak
+    dikenal sengaja kuning — menebak merah akan memblokir import yang mungkin jalan. Tiga keputusan yang
+    lahir dari mengukur:
+    1. Model di-mount satu per satu dengan **dua kali coba ulang** untuk yang gagal — model boleh membaca
+       model yang tercatat *setelahnya*, dan tanpa coba ulang itu urutan daftar yang sah jadi merah palsu.
+    2. View **SYNCED** jujur kuning ("belum bisa dikompilasi, milik FR-4") dan View yang menyentuh alias
+       **server** jujur kuning ("tidak bisa divalidasi di mesin ini") — keduanya bukan merah, karena merah
+       adalah klaim "tidak akan jalan" sedangkan keduanya cuma "belum bisa dibuktikan di sini".
+    3. View yang tidak lolos guardrail langsung merah — ia memang tidak akan pernah jalan di produk ini,
+       di mesin mana pun.
   - **Bukti:** 11 tes export + 9 tes import di `internal/bundle/` (cakupan, transitif, penolakan sumber rusak,
     pre-flight lengkap, merge menolak-sampai-tiap-merah-diputus, merge tidak memutasi lokal, idempoten dua
     kali, referensi View di-skip dicabut, model di-skip ditolak bila View-nya dipertahankan, hasil merge
-    selalu lolos validasi) — suite penuh desktop hijau. Setengah statis §13 (bentrok alias, remap path,
-    dedupe, import dua kali) sudah jadi tes regresi; setengah hidupnya (skema merah/kuning, Postgres/Mongo,
-    dua mesin CI) menunggu M4d + infra user.
+    selalu lolos validasi) plus 3 tes cek hidup (`import_check_test.go`) — suite penuh desktop hijau.
+    Setengah statis §13 (bentrok alias, remap path, dedupe, import dua kali) dan setengah hidup yang
+    ber-sumber file (skema merah/kuning) sudah jadi tes regresi; yang tersisa butuh Postgres/Mongo + dua
+    mesin CI (infra user).
 - **Keputusan user tambahan (2026-10-30, sudah masuk BRD v2):**
   - `Project` membungkus **Dashboard**; `View` tidak punya `project_id` dan **boleh direferensi dashboard dari
     project mana pun** (revisi 2026-10-31: keanggotaan View = pin/referensi, bukan kepemilikan, supaya query
@@ -901,15 +919,16 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
      laptop, jadi batas ukuran kelak melindungi **transfer/import**, bukan mesin. Angka batasnya sendiri tetap
      ditetapkan M4 waktu berkas benar-benar ikut dipindah, persis alasan yang ditulis PLAN.md.
 3. **M4 · Round-trip export/import — mekanismenya selesai 2026-11-03 (`internal/bundle/export.go` +
-   `import.go`, lihat §3), yang tersisa urut dari yang paling dibutuhkan:**
-   (a) **validasi skema per View merah/kuning (M4d)** — setengah FR-11 yang butuh DuckDB nyata: sesi scratch
-     yang me-mount sumber file bundle masuk, lalu `DESCRIBE <view sql>`; tabel/kolom tak resolve = merah,
-     error tipe = kuning. Sengaja di lapisan aplikasi (butuh sesi), bukan paket bundle; sumber server tidak
-     bisa divalidasi di mesin ini dan harus dilaporkan apa adanya;
+   `import.go` + `import_check.go`, lihat §3), yang tersisa urut dari yang paling dibutuhkan:**
+   (a) **validasi skema per View merah/kuning (M4d) — selesai 2026-11-03 (`import_check.go`).**
+     `ImportLiveCheck` me-mount sumber file + model bundle masuk di sesi scratch, `DESCRIBE` tiap View,
+     dan mengklasifikasikan error DuckDB yang diukur: tabel/kolom tak resolve = merah, tipe tak cocok =
+     kuning, View SYNCED dan View ber-alias server jujur kuning ("belum bisa dibuktikan di mesin ini").
+     Sesi dokumen yang terbuka tidak tersentuh (dites dua arah). Lihat §3;
    (b) **layar S5 Export/Import** (pemilih cakupan + toggle tiga tingkat §5.4 + laporan pre-flight + remap)
      di atas API yang sudah ada — wireframe dulu, sesuai aturan UI;
    (c) **skenario §13 penuh di dua mesin CI** — butuh Postgres/Mongo hidup + dua mesin (infra user).
-     Setengah statisnya sudah jadi tes regresi Go (lihat §3).
+     Setengah statis + setengah hidup ber-sumber file sudah jadi tes regresi Go (lihat §3).
 4. **CA privat — sisa setelah Postgres selesai (2026-11-02).** `root_cert` sudah dirakit sebagai `sslrootcert`
    di satu builder DSN (terpakai `SyncSchema` **dan** ATTACH), sudah divalidasi di titik tulis, dan sudah terbukti
    parameternya benar-benar dibaca. Yang tersisa, urut dari yang paling dibutuhkan user:
