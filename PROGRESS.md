@@ -1035,6 +1035,16 @@ bawa kedua folder sebagai salinan (`muara.bi-service` dan `muara.bi-desktop`, te
    (400 sungguhan dari `POST .../environments`) butuh `muara_api` dibangun ulang dari image baru, dan
    stack user sedang berjalan di 18080/18000 — restart adalah aksi milik user, harus izin dulu.
    *Penutup M1 (`make image-core`) sudah selesai 2026-10-31 — lihat §3.*
+8. **M5 · Jalur pemula — slice M5a (FR-4 builder) siap dieksekusi (2026-11-03).** Wireframe S3 Builder
+   sudah disajikan dan **menunggu konfirmasi user**; cakupan slice pertama: stepper 4 langkah
+   (Sumber → Field → Filter → Urutkan & batasi) + preview 10 baris debounced ≤300 ms + ringkasan satu
+   kalimat (template teks dari state, bukan AI) + SQL read-only + "Simpan sebagai View". Fakta yang sudah
+   dipastikan 2026-11-03: kompiler `WidgetBuilderState` + `CompileBuilderSQL` **sudah ada di engine**
+   (`muara.bi/engine/builder`, filter selalu dikompilasi jadi `{{param}}`, desktop boleh import langsung);
+   yang **belum** ada di state: `sort` (perlu tambahan backward-compatible untuk web) dan representasi
+   kolom array Mongo; web sendiri hanya punya form flat di drawer — stepper, ringkasan, dan panel SQL
+   read-only adalah pekerjaan UI baru. FR-5/FR-6/FR-7 dan helper UNNEST/json_extract = slice berikutnya,
+   bukan bagian M5a.
 
 ## 5. Kendala & catatan lingkungan
 
